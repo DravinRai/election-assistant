@@ -22,6 +22,8 @@ from functools import wraps
 from typing import Any, Callable, Dict, Optional
 
 import google.generativeai as genai
+genai.configure(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+model = genai.GenerativeModel("gemini-2.0-flash")
 from google.generativeai.types import HarmBlockThreshold, HarmCategory
 
 from config import (
@@ -137,9 +139,7 @@ class GeminiElectionAssistant:
         self.api_key = api_key or os.environ.get(ENV_GOOGLE_API_KEY) or os.environ.get("GOOGLE_API_KEY", "")
         if not self.api_key:
             logger.warning("GOOGLE_API_KEY is not set. Gemini API calls will use fallbacks.")
-
-        genai.configure(api_key=self.api_key)
-        self.model_name: str = "gemini-1.5-flash"
+        self.model_name: str = "gemini-2.0-flash"
         self.generation_config = self._build_generation_config()
         self.safety_settings = self._build_safety_settings()
         self.model = self._create_model()
