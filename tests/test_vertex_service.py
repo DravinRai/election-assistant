@@ -4,7 +4,6 @@ Comprehensive tests for VertexService.
 
 from __future__ import annotations
 
-import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -29,12 +28,16 @@ class TestVertexService:
 
     def test_init_vertex_success(self):
         with patch("vertexai.init") as mock_init:
-            with patch("services.vertex_service.GenerativeModel") as mock_model:
+            with patch(
+                "services.vertex_service.GenerativeModel"
+            ) as mock_model:
                 os.environ["GOOGLE_CLOUD_PROJECT"] = "test-project"
                 with patch("services.vertex_service._VERTEX_AVAILABLE", True):
                     svc = VertexService()
                     assert svc._model is not None
-                    mock_init.assert_called_once_with(project="test-project", location="us-central1")
+                    mock_init.assert_called_once_with(
+                        project="test-project", location="us-central1"
+                    )
 
     def test_init_vertex_failure(self):
         with patch("vertexai.init", side_effect=Exception("Init error")):
@@ -63,7 +66,7 @@ class TestVertexService:
         mock_response.text = '{"safe": true, "reason": null}'
         mock_model.generate_content.return_value = mock_response
         svc._model = mock_model
-        
+
         result = svc.moderate_content("How do I vote?")
         assert result["safe"] is True
         mock_model.generate_content.assert_called()
@@ -75,7 +78,7 @@ class TestVertexService:
         mock_response.text = '{"safe": false, "reason": "off topic"}'
         mock_model.generate_content.return_value = mock_response
         svc._model = mock_model
-        
+
         result = svc.moderate_content("What is for lunch?")
         assert result["safe"] is False
         assert result["reason"] == "off topic"
@@ -85,19 +88,21 @@ class TestVertexService:
         mock_model = MagicMock()
         mock_model.generate_content.side_effect = Exception("Vertex error")
         svc._model = mock_model
-        
+
         result = svc.moderate_content("How do I vote?")
-        assert result["safe"] is True 
+        assert result["safe"] is True
         assert result["reason"] is None
 
     def test_classify_topic_vertex_success(self):
         svc = VertexService()
         mock_model = MagicMock()
         mock_response = MagicMock()
-        mock_response.text = '{"topic": "voter_registration", "confidence": 0.95}'
+        mock_response.text = (
+            '{"topic": "voter_registration", "confidence": 0.95}'
+        )
         mock_model.generate_content.return_value = mock_response
         svc._model = mock_model
-        
+
         result = svc.classify_topic("How to register?")
         assert result["topic"] == "voter_registration"
         assert result["confidence"] == 0.95
@@ -107,14 +112,14 @@ class TestVertexService:
         mock_model = MagicMock()
         mock_model.generate_content.side_effect = Exception("Vertex error")
         svc._model = mock_model
-        
+
         result = svc.classify_topic("How do I register to vote?")
-        assert result["topic"] == "voter_registration" 
+        assert result["topic"] == "voter_registration"
         assert result["confidence"] == 0.7
 
     def test_heuristic_classify_all_rules(self):
         svc = VertexService()
-        
+
         tests = [
             ("register to vote", "voter_registration"),
             ("absentee ballot", "voting_methods"),
@@ -124,9 +129,9 @@ class TestVertexService:
             ("campaign finance", "campaign_finance"),
             ("gerrymandering", "redistricting"),
             ("just voting", "general_election_info"),
-            ("weather", "off_topic")
+            ("weather", "off_topic"),
         ]
-        
+
         for text, expected_topic in tests:
             result = svc._heuristic_classify(text)
             assert result["topic"] == expected_topic, f"Failed for {text}"
@@ -157,7 +162,9 @@ class TestVertexService:
 
     def test_init_vertex_internal_success(self):
         with patch("vertexai.init") as mock_init:
-            with patch("services.vertex_service.GenerativeModel") as mock_model:
+            with patch(
+                "services.vertex_service.GenerativeModel"
+            ) as mock_model:
                 svc = VertexService()
                 svc.project_id = "p"
                 svc._init_vertex()
@@ -185,7 +192,9 @@ class TestVertexService:
         mock_model.generate_content.side_effect = Exception("Vertex fail")
         svc._model = mock_model
         result = svc._vertex_classify("text")
-        assert result["topic"] == "general_election_info" # Heuristic fallback result for "text"
+        assert (
+            result["topic"] == "general_election_info"
+        )  # Heuristic fallback result for "text"
 
     def test_heuristic_classify_election_keywords(self):
         svc = VertexService()

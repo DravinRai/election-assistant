@@ -8,6 +8,13 @@ Uses Google Cloud Translation API to:
 
 Gracefully falls back to passthrough mode when the Translate SDK
 is not installed or API key is not configured.
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from services.translate_service import TranslateService
+    svc = TranslateService.get_instance()
+    res = svc.translate_text("Hello", "es")
 """
 
 from __future__ import annotations
@@ -36,10 +43,14 @@ SUPPORTED_LANGUAGES: dict[str, str] = {
 # Guard import so tests/dev can run without the SDK
 try:
     from google.cloud import translate_v2 as translate
+
     _TRANSLATE_AVAILABLE = True
 except ImportError:
     _TRANSLATE_AVAILABLE = False
-    logger.info("Google Cloud Translate SDK not installed — using passthrough mode.")
+    logger.info(
+        "Google Cloud Translate SDK not installed — using passthrough mode."
+    )
+__all__ = ["TranslateService"]
 
 
 class TranslateService:
@@ -119,7 +130,12 @@ class TranslateService:
             }
         except Exception as exc:
             logger.exception("Language detection failed: %s", exc)
-            return {"language": "en", "confidence": 0.0, "success": False, "error": str(exc)}
+            return {
+                "language": "en",
+                "confidence": 0.0,
+                "success": False,
+                "error": str(exc),
+            }
 
     def translate_text(
         self,
@@ -145,9 +161,13 @@ class TranslateService:
             return cached
 
         if not self._client:
-            return self._passthrough_response(text, source_language, target_language)
+            return self._passthrough_response(
+                text, source_language, target_language
+            )
 
-        return self._perform_translation(text, target_language, source_language)
+        return self._perform_translation(
+            text, target_language, source_language
+        )
 
     def get_supported_languages(self) -> dict[str, Any]:
         """Return the list of supported languages.
@@ -249,7 +269,10 @@ class TranslateService:
             Translation result dictionary.
         """
         try:
-            kwargs: dict[str, Any] = {"values": text, "target_language": target}
+            kwargs: dict[str, Any] = {
+                "values": text,
+                "target_language": target,
+            }
             if source:
                 kwargs["source_language"] = source
 
@@ -268,7 +291,11 @@ class TranslateService:
             }
         except Exception as exc:
             logger.exception("Translation failed: %s", exc)
-            return {"translated_text": text, "error": str(exc), "success": False}
+            return {
+                "translated_text": text,
+                "error": str(exc),
+                "success": False,
+            }
 
     @staticmethod
     def _cache_key(text: str, target: str) -> str:

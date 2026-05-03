@@ -34,17 +34,22 @@ class TestTranslateService:
         assert len(result["languages"]) > 0
 
     def test_init_client_success(self):
-        with patch("services.translate_service.translate.Client") as mock_client_cls:
+        with patch(
+            "services.translate_service.translate.Client"
+        ) as mock_client_cls:
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
             os.environ["GOOGLE_TRANSLATE_API_KEY"] = "fake-key"
-            
+
             svc = TranslateService()
             assert svc._client is not None
             assert mock_client._connection.API_KEY == "fake-key"
 
     def test_init_client_failure(self):
-        with patch("services.translate_service.translate.Client", side_effect=Exception("Init error")):
+        with patch(
+            "services.translate_service.translate.Client",
+            side_effect=Exception("Init error"),
+        ):
             os.environ["GOOGLE_TRANSLATE_API_KEY"] = "fake-key"
             svc = TranslateService()
             assert svc._client is None
@@ -52,9 +57,12 @@ class TestTranslateService:
     def test_detect_language_success(self):
         svc = TranslateService()
         mock_client = MagicMock()
-        mock_client.detect_language.return_value = {"language": "hi", "confidence": 0.99}
+        mock_client.detect_language.return_value = {
+            "language": "hi",
+            "confidence": 0.99,
+        }
         svc._client = mock_client
-        
+
         result = svc.detect_language("नमस्ते")
         assert result["success"] is True
         assert result["language"] == "hi"
@@ -65,7 +73,7 @@ class TestTranslateService:
         mock_client = MagicMock()
         mock_client.detect_language.side_effect = Exception("Detection error")
         svc._client = mock_client
-        
+
         result = svc.detect_language("नमस्ते")
         assert result["success"] is False
         assert result["language"] == "en"
@@ -88,7 +96,7 @@ class TestTranslateService:
         svc = TranslateService()
         key = svc._cache_key("Hello", "hi")
         svc._cache[key] = "नमस्ते"
-        
+
         result = svc.translate_text("Hello", "hi")
         assert result["success"] is True
         assert result["translated_text"] == "नमस्ते"
@@ -107,36 +115,40 @@ class TestTranslateService:
         mock_client = MagicMock()
         mock_client.translate.return_value = {
             "translatedText": "नमस्ते",
-            "detectedSourceLanguage": "en"
+            "detectedSourceLanguage": "en",
         }
         svc._client = mock_client
-        
+
         result = svc.translate_text("Hello", "hi", source_language="en")
         assert result["success"] is True
         assert result["translated_text"] == "नमस्ते"
         assert result["source_language"] == "en"
-        mock_client.translate.assert_called_with(values="Hello", target_language="hi", source_language="en")
+        mock_client.translate.assert_called_with(
+            values="Hello", target_language="hi", source_language="en"
+        )
 
     def test_translate_text_success_auto_source(self):
         svc = TranslateService()
         mock_client = MagicMock()
         mock_client.translate.return_value = {
             "translatedText": "नमस्ते",
-            "detectedSourceLanguage": "en"
+            "detectedSourceLanguage": "en",
         }
         svc._client = mock_client
-        
+
         result = svc.translate_text("Hello", "hi")
         assert result["success"] is True
         assert result["translated_text"] == "नमस्ते"
-        mock_client.translate.assert_called_with(values="Hello", target_language="hi")
+        mock_client.translate.assert_called_with(
+            values="Hello", target_language="hi"
+        )
 
     def test_translate_text_failure(self):
         svc = TranslateService()
         mock_client = MagicMock()
         mock_client.translate.side_effect = Exception("Translate error")
         svc._client = mock_client
-        
+
         result = svc.translate_text("Hello", "hi")
         assert result["success"] is False
         assert result["translated_text"] == "Hello"
@@ -171,7 +183,9 @@ class TestTranslateService:
         assert result["translated_text"] == ""
 
     def test_init_no_api_key(self):
-        with patch.dict(os.environ, {"GOOGLE_TRANSLATE_API_KEY": ""}, clear=True):
+        with patch.dict(
+            os.environ, {"GOOGLE_TRANSLATE_API_KEY": ""}, clear=True
+        ):
             svc = TranslateService()
             assert svc._client is None
 
@@ -211,7 +225,7 @@ class TestTranslateService:
         mock_client = MagicMock()
         mock_client.translate.return_value = {
             "translatedText": "translated",
-            "detectedSourceLanguage": "en"
+            "detectedSourceLanguage": "en",
         }
         svc._client = mock_client
         result = svc._perform_translation("text", "hi", "en")

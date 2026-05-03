@@ -39,9 +39,13 @@ class TestFirebaseService:
     def test_init_firebase_success_with_creds(self):
         with patch("firebase_admin.initialize_app"):
             with patch("firebase_admin.get_app", side_effect=ValueError):
-                with patch("firebase_admin.credentials.Certificate") as mock_cert:
+                with patch(
+                    "firebase_admin.credentials.Certificate"
+                ) as mock_cert:
                     with patch("os.path.exists", return_value=True):
-                        os.environ["FIREBASE_CREDENTIALS_PATH"] = "path/to/json"
+                        os.environ["FIREBASE_CREDENTIALS_PATH"] = (
+                            "path/to/json"
+                        )
                         os.environ["GOOGLE_CLOUD_PROJECT"] = "test-project"
                         svc = FirebaseService()
                         mock_cert.assert_called_with("path/to/json")
@@ -53,7 +57,9 @@ class TestFirebaseService:
                 mock_get_app.assert_called_once()
 
     def test_init_firebase_failure(self):
-        with patch("firebase_admin.get_app", side_effect=Exception("Init error")):
+        with patch(
+            "firebase_admin.get_app", side_effect=Exception("Init error")
+        ):
             svc = FirebaseService()
             assert svc.is_available is False
 
@@ -61,7 +67,7 @@ class TestFirebaseService:
         svc = FirebaseService()
         mock_db = MagicMock()
         svc._db = mock_db
-        
+
         result = svc.create_session()
         assert result["success"] is True
         assert result["persisted"] is True
@@ -72,19 +78,21 @@ class TestFirebaseService:
         mock_db = MagicMock()
         mock_db.collection.side_effect = Exception("DB error")
         svc._db = mock_db
-        
+
         result = svc.create_session()
-        assert result["success"] is True # still returns ID
+        assert result["success"] is True  # still returns ID
         assert result["persisted"] is False
 
     def test_save_message_success(self):
         svc = FirebaseService()
         mock_db = MagicMock()
         svc._db = mock_db
-        
+
         # Mock firestore.Increment
         with patch("firebase_admin.firestore.Increment", return_value="inc"):
-            result = svc.save_message("sess-1", "user", "hello", {"meta": "data"})
+            result = svc.save_message(
+                "sess-1", "user", "hello", {"meta": "data"}
+            )
             assert result["success"] is True
             assert result["persisted"] is True
             mock_db.collection.assert_called()
@@ -94,7 +102,7 @@ class TestFirebaseService:
         mock_db = MagicMock()
         mock_db.collection.side_effect = Exception("DB error")
         svc._db = mock_db
-        
+
         result = svc.save_message("sess-1", "user", "hello")
         assert result["success"] is False
         assert "DB error" in result["error"]
@@ -104,9 +112,11 @@ class TestFirebaseService:
         mock_db = MagicMock()
         mock_doc = MagicMock()
         mock_doc.to_dict.return_value = {"role": "user", "content": "hi"}
-        mock_db.collection.return_value.document.return_value.collection.return_value.order_by.return_value.limit.return_value.stream.return_value = [mock_doc]
+        mock_db.collection.return_value.document.return_value.collection.return_value.order_by.return_value.limit.return_value.stream.return_value = [
+            mock_doc
+        ]
         svc._db = mock_db
-        
+
         result = svc.get_conversation_history("sess-1")
         assert result["success"] is True
         assert len(result["messages"]) == 1
@@ -117,7 +127,7 @@ class TestFirebaseService:
         mock_db = MagicMock()
         mock_db.collection.side_effect = Exception("Stream error")
         svc._db = mock_db
-        
+
         result = svc.get_conversation_history("sess-1")
         assert result["success"] is False
         assert result["messages"] == []
@@ -126,7 +136,7 @@ class TestFirebaseService:
         svc = FirebaseService()
         mock_db = MagicMock()
         svc._db = mock_db
-        
+
         result = svc.save_quiz_score("sess-1", 8, 10, "voting")
         assert result["success"] is True
         assert result["persisted"] is True
@@ -136,7 +146,7 @@ class TestFirebaseService:
         mock_db = MagicMock()
         mock_db.collection.side_effect = Exception("DB error")
         svc._db = mock_db
-        
+
         result = svc.save_quiz_score("sess-1", 8, 10, "voting")
         assert result["success"] is False
         assert "DB error" in result["error"]
@@ -147,9 +157,11 @@ class TestFirebaseService:
         mock_doc = MagicMock()
         mock_doc.to_dict.return_value = {"score": 8}
         # Deep mock for order_by.limit.stream
-        mock_db.collection.return_value.document.return_value.collection.return_value.order_by.return_value.limit.return_value.stream.return_value = [mock_doc]
+        mock_db.collection.return_value.document.return_value.collection.return_value.order_by.return_value.limit.return_value.stream.return_value = [
+            mock_doc
+        ]
         svc._db = mock_db
-        
+
         result = svc.get_quiz_scores("sess-1")
         assert result["success"] is True
         assert len(result["scores"]) == 1
@@ -160,7 +172,7 @@ class TestFirebaseService:
         mock_db = MagicMock()
         mock_db.collection.side_effect = Exception("DB error")
         svc._db = mock_db
-        
+
         result = svc.get_quiz_scores("sess-1")
         assert result["success"] is False
         assert result["scores"] == []

@@ -35,14 +35,19 @@ class TestTTSService:
         assert result["voices"]["en"]["language_code"] == "en-US"
 
     def test_init_client_success(self):
-        with patch("google.cloud.texttospeech.TextToSpeechClient") as mock_client_cls:
+        with patch(
+            "google.cloud.texttospeech.TextToSpeechClient"
+        ) as mock_client_cls:
             os.environ["GOOGLE_TTS_API_KEY"] = "fake-key"
             with patch("services.tts_service._TTS_AVAILABLE", True):
                 svc = TTSService()
                 assert svc._client is not None
 
     def test_init_client_failure(self):
-        with patch("google.cloud.texttospeech.TextToSpeechClient", side_effect=Exception("Init error")):
+        with patch(
+            "google.cloud.texttospeech.TextToSpeechClient",
+            side_effect=Exception("Init error"),
+        ):
             os.environ["GOOGLE_TTS_API_KEY"] = "fake-key"
             with patch("services.tts_service._TTS_AVAILABLE", True):
                 svc = TTSService()
@@ -71,7 +76,7 @@ class TestTTSService:
         svc = TTSService()
         key = svc._cache_key("Hello", "en", 1.0)
         svc._cache[key] = "fakebase64"
-        
+
         result = svc.synthesize("Hello", "en", 1.0)
         assert result["success"] is True
         assert result["audio_base64"] == "fakebase64"
@@ -85,21 +90,25 @@ class TestTTSService:
         mock_response.audio_content = b"audio"
         mock_client.synthesize_speech.return_value = mock_response
         svc._client = mock_client
-        
-        with patch("google.cloud.texttospeech.VoiceSelectionParams"), \
-             patch("google.cloud.texttospeech.SynthesisInput"), \
-             patch("google.cloud.texttospeech.AudioConfig"):
+
+        with patch("google.cloud.texttospeech.VoiceSelectionParams"), patch(
+            "google.cloud.texttospeech.SynthesisInput"
+        ), patch("google.cloud.texttospeech.AudioConfig"):
             result = svc.synthesize("Hello", "en", 1.2)
             assert result["success"] is True
-            assert result["audio_base64"] == base64.b64encode(b"audio").decode("utf-8")
+            assert result["audio_base64"] == base64.b64encode(b"audio").decode(
+                "utf-8"
+            )
             assert result["voice"] == "en-US-Wavenet-D"
 
     def test_synthesize_failure(self):
         svc = TTSService()
         mock_client = MagicMock()
-        mock_client.synthesize_speech.side_effect = Exception("Synthesis error")
+        mock_client.synthesize_speech.side_effect = Exception(
+            "Synthesis error"
+        )
         svc._client = mock_client
-        
+
         result = svc.synthesize("Hello")
         assert result["success"] is False
         assert "Synthesis error" in result["error"]
@@ -108,7 +117,7 @@ class TestTTSService:
         svc = TTSService()
         long_text = "a" * 6000
         truncated = svc._truncate_text(long_text)
-        assert len(truncated) <= 5003 
+        assert len(truncated) <= 5003
         assert truncated.endswith("...")
 
     def test_cache_eviction(self):
@@ -124,9 +133,12 @@ class TestTTSService:
 
     def test_build_voice_params(self):
         from google.cloud import texttospeech
+
         svc = TTSService()
         voice_cfg = ("en-US", "en-US-Wavenet-D", "MALE")
-        with patch("google.cloud.texttospeech.VoiceSelectionParams") as mock_params:
+        with patch(
+            "google.cloud.texttospeech.VoiceSelectionParams"
+        ) as mock_params:
             svc._build_voice_params(voice_cfg)
             mock_params.assert_called_once()
             args, kwargs = mock_params.call_args
@@ -134,12 +146,17 @@ class TestTTSService:
 
     def test_build_voice_params_neutral(self):
         from google.cloud import texttospeech
+
         svc = TTSService()
         voice_cfg = ("xx-XX", "voice-X", "UNKNOWN")
-        with patch("google.cloud.texttospeech.VoiceSelectionParams") as mock_params:
+        with patch(
+            "google.cloud.texttospeech.VoiceSelectionParams"
+        ) as mock_params:
             svc._build_voice_params(voice_cfg)
             args, kwargs = mock_params.call_args
-            assert kwargs["ssml_gender"] == texttospeech.SsmlVoiceGender.NEUTRAL
+            assert (
+                kwargs["ssml_gender"] == texttospeech.SsmlVoiceGender.NEUTRAL
+            )
 
     def test_get_available_voices_structure(self):
         svc = TTSService()
@@ -155,7 +172,7 @@ class TestTTSService:
         svc = TTSService()
         text = "a" * 10
         assert svc._truncate_text(text) == text
-        
+
         long_text = "a" * 6000
         truncated = svc._truncate_text(long_text)
         assert len(truncated) == 5003
@@ -180,13 +197,18 @@ class TestTTSService:
 
     def test_build_voice_params_default_gender(self):
         from google.cloud import texttospeech
+
         svc = TTSService()
         # Test fallback to NEUTRAL if gender string is invalid
         voice_cfg = ("en-US", "name", "INVALID_GENDER")
-        with patch("google.cloud.texttospeech.VoiceSelectionParams") as mock_params:
+        with patch(
+            "google.cloud.texttospeech.VoiceSelectionParams"
+        ) as mock_params:
             svc._build_voice_params(voice_cfg)
             _, kwargs = mock_params.call_args
-            assert kwargs["ssml_gender"] == texttospeech.SsmlVoiceGender.NEUTRAL
+            assert (
+                kwargs["ssml_gender"] == texttospeech.SsmlVoiceGender.NEUTRAL
+            )
 
     def test_put_cache_full(self):
         svc = TTSService()

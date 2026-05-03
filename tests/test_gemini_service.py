@@ -99,7 +99,13 @@ class TestTimeline:
         """Should return structured timeline JSON."""
         expected = {
             "country": "India",
-            "timeline": [{"phase": "Registration", "description": "D", "approximate_timeframe": "Jan"}],
+            "timeline": [
+                {
+                    "phase": "Registration",
+                    "description": "D",
+                    "approximate_timeframe": "Jan",
+                }
+            ],
             "summary": "Summary",
         }
         mock_response = MagicMock()

@@ -3,6 +3,12 @@ Pydantic-style dataclass models for request/response validation.
 
 Provides structured data models for all API endpoints, replacing
 raw dict access with validated, typed objects.
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from models import ChatRequest
+    req = ChatRequest(message="Hello")
 """
 
 from __future__ import annotations
@@ -10,10 +16,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+__all__ = [
+    "ChatRequest",
+    "TranslateRequest",
+    "TTSRequest",
+    "QuizScoreRequest",
+    "TimelineRequest",
+    "APIResponse",
+    "ChatResponse",
+    "ModerationResult",
+    "ClassificationResult",
+    "HealthStatus",
+]
+
 
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ChatRequest:
@@ -106,6 +126,7 @@ class TimelineRequest:
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class APIResponse:

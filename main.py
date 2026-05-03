@@ -42,11 +42,6 @@ from config import (
     APP_VERSION,
     CSP_DIRECTIVES,
     DEFAULT_PORT,
-    ENV_ALLOWED_ORIGINS,
-    ENV_FLASK_SECRET_KEY,
-    ENV_GA_MEASUREMENT_ID,
-    ENV_MAPS_API_KEY,
-    GA_DEFAULT_MEASUREMENT_ID,
     MAX_CONTENT_LENGTH,
     MAX_MESSAGE_LENGTH,
     RATE_LIMIT_CHAT,
@@ -62,7 +57,9 @@ from config import (
     RATE_LIMIT_TTS,
     AppConfig,
 )
-from models import ChatRequest, QuizScoreRequest, TranslateRequest, TTSRequest, TimelineRequest
+from models import QuizScoreRequest, TranslateRequest, TTSRequest
+
+__all__ = ["create_app", "app"]
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -164,7 +161,12 @@ def sanitise_input(text: str | None) -> str:
 
     # 1. Remove <script> blocks (tag and content) entirely
     # [^>] is safer than .*? for the tag itself, but .*? works for the inner content
-    text = re.sub(r'<script\b[^>]*>.*?</script>', '', str(text), flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<script\b[^>]*>.*?</script>",
+        "",
+        str(text),
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
     # 2. Remove all other tags but keep their text content
     clean_text = bleach.clean(text, tags=[], attributes={}, strip=True)
@@ -186,10 +188,15 @@ def validate_content_type() -> Response | None:
             content_type,
             request.remote_addr,
         )
-        return jsonify({
-            "error": "Content-Type must be application/json.",
-            "success": False,
-        }), 415
+        return (
+            jsonify(
+                {
+                    "error": "Content-Type must be application/json.",
+                    "success": False,
+                }
+            ),
+            415,
+        )
     return None
 
 
@@ -202,12 +209,14 @@ def require_json(func: Callable) -> Callable:
     Returns:
         Wrapped function that validates Content-Type before proceeding.
     """
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         error = validate_content_type()
         if error:
             return error
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -254,11 +263,217 @@ def _check_service_env(key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _setup_security_and_cors(application, cfg):
+    """Setup security headers and CORS."""
+    Compress(application)
+    Talisman(
+        application, content_security_policy=CSP_DIRECTIVES, force_https=False
+    )
+    origins = cfg.allowed_origins.split(",")
+    CORS(application, resources={r"/api/*": {"origins": origins}})
+
+
+def _setup_rate_limiter(application):
+    """Setup and return rate limiter."""
+    return Limiter(
+        key_func=get_remote_address,
+        app=application,
+        default_limits=[RATE_LIMIT_DEFAULT, RATE_LIMIT_HOURLY],
+        storage_uri="memory://",
+        on_breach=_on_rate_limit_breach,
+    )
+
+
+def _setup_context_processor(application, cfg):
+    """Setup template context processor."""
+
+    @application.context_processor
+    def inject_config():
+        return {
+            "ga_measurement_id": cfg.ga_measurement_id,
+            "google_maps_api_key": cfg.google_maps_api_key,
+        }
+
+
+def _register_routes(application, limiter):
+    """Register all routes to the application."""
+    application.add_url_rule("/", view_func=index)
+    application.add_url_rule("/health", view_func=limiter.exempt(health))
+    application.add_url_rule(
+        "/api/chat",
+        view_func=limiter.limit(RATE_LIMIT_CHAT)(require_json(chat)),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/translate",
+        view_func=limiter.limit(RATE_LIMIT_TRANSLATE)(require_json(translate)),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/translate/languages",
+        view_func=limiter.limit(RATE_LIMIT_LANGUAGES)(translate_languages),
+    )
+    application.add_url_rule(
+        "/api/translate/detect",
+        view_func=limiter.limit(RATE_LIMIT_DETECT)(
+            require_json(detect_language)
+        ),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/tts",
+        view_func=limiter.limit(RATE_LIMIT_TTS)(require_json(text_to_speech)),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/news", view_func=limiter.limit(RATE_LIMIT_NEWS)(news_search)
+    )
+    application.add_url_rule(
+        "/api/session",
+        view_func=limiter.limit(RATE_LIMIT_SESSION)(create_session),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/session/<session_id>/quiz",
+        view_func=limiter.limit(RATE_LIMIT_QUIZ)(
+            require_json(save_quiz_score)
+        ),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/topics", view_func=limiter.limit(RATE_LIMIT_TOPICS)(topics)
+    )
+    application.add_url_rule(
+        "/api/quiz/question",
+        view_func=limiter.limit(RATE_LIMIT_QUIZ)(quiz_question),
+    )
+    application.add_url_rule(
+        "/api/timeline",
+        view_func=limiter.limit(RATE_LIMIT_TOPICS)(require_json(timeline)),
+        methods=["POST"],
+    )
+    application.add_url_rule(
+        "/api/map", view_func=limiter.limit(RATE_LIMIT_DEFAULT)(map_endpoint)
+    )
+
+
+def _register_error_handlers(application):
+    """Register error handlers."""
+    application.register_error_handler(404, not_found)
+    application.register_error_handler(413, payload_too_large)
+    application.register_error_handler(429, rate_limited)
+    application.register_error_handler(500, server_error)
+
+
+def index():
+    """Serve the main UI."""
+    return render_template("index.html")
+
+
+def health():
+    """Liveness / readiness probe."""
+    return _build_health_response()
+
+
+def chat():
+    """Accept a user message, moderate, classify, and respond."""
+    return _handle_chat()
+
+
+def translate():
+    """Translate text to a target language."""
+    return _handle_translate()
+
+
+def translate_languages():
+    """Return supported languages for translation."""
+    from services.translate_service import TranslateService
+
+    svc = TranslateService.get_instance()
+    return jsonify(svc.get_supported_languages())
+
+
+def detect_language():
+    """Detect the language of input text."""
+    return _handle_detect_language()
+
+
+def text_to_speech():
+    """Convert text to speech audio."""
+    return _handle_tts()
+
+
+def news_search():
+    """Search for election-related news."""
+    return _handle_news_search()
+
+
+def create_session():
+    """Create a new anonymous session for persistence."""
+    from services.firebase_service import FirebaseService
+
+    svc = FirebaseService.get_instance()
+    return jsonify(svc.create_session())
+
+
+def save_quiz_score(session_id):
+    """Save a quiz score for a session."""
+    return _handle_quiz_score(session_id)
+
+
+def topics():
+    """Return the list of supported election topics."""
+    from services.vertex_service import ELECTION_TOPICS
+
+    return jsonify({"topics": ELECTION_TOPICS, "success": True})
+
+
+def quiz_question():
+    """Generate a random election quiz question."""
+    return _handle_quiz_question()
+
+
+def timeline():
+    """Retrieve an election timeline for a country."""
+    return _handle_timeline()
+
+
+def map_endpoint():
+    """Return map configuration or fallback embed URL."""
+    return _handle_map()
+
+
+def not_found(error: Exception):
+    """Handle 404 errors with JSON response."""
+    return jsonify({"error": "Resource not found.", "success": False}), 404
+
+
+def payload_too_large(error: Exception):
+    """Handle oversized request payloads."""
+    log_security_event("PAYLOAD_TOO_LARGE", f"ip={request.remote_addr}")
+    return (
+        jsonify({"error": "Request payload exceeds limit.", "success": False}),
+        413,
+    )
+
+
+def rate_limited(error: Exception):
+    """Handle rate limit exceeded errors."""
+    return jsonify({"error": "Too many requests.", "success": False}), 429
+
+
+def server_error(error: Exception):
+    """Handle internal server errors."""
+    return (
+        jsonify(
+            {"error": "An internal server error occurred.", "success": False}
+        ),
+        500,
+    )
+
+
 def create_app() -> Flask:
     """Create and configure the Flask application.
-
-    Sets up security headers, CORS, rate limiting, compression,
-    request size limits, and all route handlers.
 
     Returns:
         Configured Flask application instance.
@@ -268,248 +483,11 @@ def create_app() -> Flask:
     application.config["SECRET_KEY"] = cfg.flask_secret_key
     application.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 
-    # -- Response compression --
-    Compress(application)
-
-    # -- Security headers --
-    Talisman(
-        application,
-        content_security_policy=CSP_DIRECTIVES,
-        force_https=False,
-    )
-
-    # -- CORS --
-    origins = cfg.allowed_origins.split(",")
-    CORS(application, resources={r"/api/*": {"origins": origins}})
-
-    # -- Rate limiting --
-    limiter = Limiter(
-        key_func=get_remote_address,
-        app=application,
-        default_limits=[RATE_LIMIT_DEFAULT, RATE_LIMIT_HOURLY],
-        storage_uri="memory://",
-        on_breach=_on_rate_limit_breach,
-    )
-
-    # -- Template context --
-    @application.context_processor
-    def inject_config() -> dict[str, str]:
-        """Inject GA and Maps keys into all templates.
-
-        Returns:
-            Dictionary with ga_measurement_id and google_maps_api_key.
-        """
-        return {
-            "ga_measurement_id": cfg.ga_measurement_id,
-            "google_maps_api_key": cfg.google_maps_api_key,
-        }
-
-    # -----------------------------------------------------------------
-    # Routes
-    # -----------------------------------------------------------------
-
-    @application.route("/")
-    def index() -> str:
-        """Serve the main UI.
-
-        Returns:
-            Rendered index.html template.
-        """
-        return render_template("index.html")
-
-    @application.route("/health")
-    @limiter.exempt
-    def health() -> tuple[Response, int]:
-        """Liveness / readiness probe for Cloud Run.
-
-        Returns:
-            Tuple of JSON response and HTTP 200 status code.
-        """
-        return _build_health_response()
-
-    @application.route("/api/chat", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_CHAT)
-    @require_json
-    def chat() -> tuple[Response, int]:
-        """Accept a user message, moderate, classify, and respond.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_chat()
-
-    @application.route("/api/translate", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_TRANSLATE)
-    @require_json
-    def translate() -> tuple[Response, int]:
-        """Translate text to a target language.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_translate()
-
-    @application.route("/api/translate/languages")
-    @limiter.limit(RATE_LIMIT_LANGUAGES)
-    def translate_languages() -> Response:
-        """Return supported languages for translation.
-
-        Returns:
-            JSON response with supported languages.
-        """
-        from services.translate_service import TranslateService
-        svc = TranslateService.get_instance()
-        return jsonify(svc.get_supported_languages())
-
-    @application.route("/api/translate/detect", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_DETECT)
-    @require_json
-    def detect_language() -> tuple[Response, int]:
-        """Detect the language of input text.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_detect_language()
-
-    @application.route("/api/tts", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_TTS)
-    @require_json
-    def text_to_speech() -> tuple[Response, int]:
-        """Convert text to speech audio.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_tts()
-
-    @application.route("/api/news")
-    @limiter.limit(RATE_LIMIT_NEWS)
-    def news_search() -> tuple[Response, int]:
-        """Search for election-related news.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_news_search()
-
-    @application.route("/api/session", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_SESSION)
-    def create_session() -> Response:
-        """Create a new anonymous session for persistence.
-
-        Returns:
-            JSON response with session_id.
-        """
-        from services.firebase_service import FirebaseService
-        svc = FirebaseService.get_instance()
-        return jsonify(svc.create_session())
-
-    @application.route("/api/session/<session_id>/quiz", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_QUIZ)
-    @require_json
-    def save_quiz_score(session_id: str) -> tuple[Response, int]:
-        """Save a quiz score for a session.
-
-        Args:
-            session_id: The session identifier.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_quiz_score(session_id)
-
-    @application.route("/api/topics")
-    @limiter.limit(RATE_LIMIT_TOPICS)
-    def topics() -> Response:
-        """Return the list of supported election topics.
-
-        Returns:
-            JSON response with topics list.
-        """
-        from services.vertex_service import ELECTION_TOPICS
-        return jsonify({"topics": ELECTION_TOPICS, "success": True})
-
-    @application.route("/api/quiz/question")
-    @limiter.limit(RATE_LIMIT_QUIZ)
-    def quiz_question() -> tuple[Response, int]:
-        """Generate a random election quiz question.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_quiz_question()
-
-    @application.route("/api/timeline", methods=["POST"])
-    @limiter.limit(RATE_LIMIT_TOPICS)
-    @require_json
-    def timeline() -> tuple[Response, int]:
-        """Retrieve an election timeline for a country.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_timeline()
-
-    @application.route("/api/map")
-    @limiter.limit(RATE_LIMIT_DEFAULT)
-    def map_endpoint() -> tuple[Response, int]:
-        """Return map configuration or fallback embed URL.
-
-        Returns:
-            Tuple of JSON response and HTTP status code.
-        """
-        return _handle_map()
-
-    # -----------------------------------------------------------------
-    # Error handlers
-    # -----------------------------------------------------------------
-
-    @application.errorhandler(404)
-    def not_found(_: Exception) -> tuple[Response, int]:
-        """Handle 404 errors with JSON response.
-
-        Returns:
-            Tuple of JSON error and 404 status.
-        """
-        return jsonify({"error": "Resource not found.", "success": False}), 404
-
-    @application.errorhandler(413)
-    def payload_too_large(_: Exception) -> tuple[Response, int]:
-        """Handle oversized request payloads.
-
-        Returns:
-            Tuple of JSON error and 413 status.
-        """
-        log_security_event("PAYLOAD_TOO_LARGE", f"ip={request.remote_addr}")
-        return jsonify({
-            "error": f"Request payload exceeds the {MAX_CONTENT_LENGTH // 1024}KB limit.",
-            "success": False,
-        }), 413
-
-    @application.errorhandler(429)
-    def rate_limited(_: Exception) -> tuple[Response, int]:
-        """Handle rate limit exceeded errors.
-
-        Returns:
-            Tuple of JSON error and 429 status.
-        """
-        return jsonify({
-            "error": "Too many requests. Please wait before trying again.",
-            "success": False,
-        }), 429
-
-    @application.errorhandler(500)
-    def server_error(_: Exception) -> tuple[Response, int]:
-        """Handle internal server errors with JSON response.
-
-        Returns:
-            Tuple of JSON error and 500 status.
-        """
-        return jsonify({
-            "error": "An internal server error occurred.",
-            "success": False,
-        }), 500
+    _setup_security_and_cors(application, cfg)
+    limiter = _setup_rate_limiter(application)
+    _setup_context_processor(application, cfg)
+    _register_routes(application, limiter)
+    _register_error_handlers(application)
 
     logger.info("Flask application created with all Google Services.")
     return application
@@ -549,12 +527,17 @@ def _build_health_response() -> tuple[Response, int]:
         "analytics": _check_service_env("GA_MEASUREMENT_ID"),
         "maps": _check_service_env("GOOGLE_MAPS_API_KEY"),
     }
-    return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "version": APP_VERSION,
-        "services": services_status,
-    }), 200
+    return (
+        jsonify(
+            {
+                "status": "healthy",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "version": APP_VERSION,
+                "services": services_status,
+            }
+        ),
+        200,
+    )
 
 
 def _handle_chat() -> tuple[Response, int]:
@@ -563,24 +546,38 @@ def _handle_chat() -> tuple[Response, int]:
     Returns:
         Tuple of JSON response and HTTP status code.
     """
-    from services.firebase_service import FirebaseService
     from services.gemini_service import GeminiElectionAssistant
     from services.vertex_service import VertexService
 
     data = request.get_json(silent=True)
     if not data or not data.get("message"):
-        return jsonify({"error": "A 'message' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'message' field is required.", "success": False}
+            ),
+            400,
+        )
 
     raw_message = str(data.get("message", ""))
     user_message = sanitise_input(raw_message)
     if not user_message:
-        return jsonify({"error": "A 'message' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'message' field is required.", "success": False}
+            ),
+            400,
+        )
 
     if len(user_message) > MAX_MESSAGE_LENGTH:
-        return jsonify({
-            "error": f"Message exceeds the {MAX_MESSAGE_LENGTH:,}-character limit.",
-            "success": False,
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Message exceeds the {MAX_MESSAGE_LENGTH:,}-character limit.",
+                    "success": False,
+                }
+            ),
+            400,
+        )
 
     history: list = data.get("history", [])
     session_id: str = sanitise_input(str(data.get("session_id", "")))
@@ -590,11 +587,16 @@ def _handle_chat() -> tuple[Response, int]:
     moderation = vertex.moderate_content(user_message)
     if not moderation["safe"]:
         log_security_event("CONTENT_BLOCKED", f"reason={moderation['reason']}")
-        return jsonify({
-            "error": moderation["reason"],
-            "success": False,
-            "blocked": True,
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": moderation["reason"],
+                    "success": False,
+                    "blocked": True,
+                }
+            ),
+            400,
+        )
 
     # 2. Topic classification
     classification = vertex.classify_topic(user_message)
@@ -603,23 +605,33 @@ def _handle_chat() -> tuple[Response, int]:
     try:
         gemini = GeminiElectionAssistant()
         result = gemini.chat(user_message)
-    except Exception as exc:
+    except (ValueError, KeyError, ConnectionError, RuntimeError) as exc:
         logger.exception("Gemini chat failed: %s", exc)
-        return jsonify({
-            "error": "AI service temporarily unavailable. Please try again.",
-            "success": False,
-        }), 500
+        return (
+            jsonify(
+                {
+                    "error": "AI service temporarily unavailable. Please try again.",
+                    "success": False,
+                }
+            ),
+            500,
+        )
 
     # 4. Persist to Firestore (fire-and-forget)
     _persist_chat(session_id, user_message, result, classification)
 
-    return jsonify({
-        "response": result.get("response", ""),
-        "topic": classification["topic"],
-        "confidence": classification["confidence"],
-        "suggested_questions": result.get("suggested_questions", []),
-        "success": True,
-    }), 200
+    return (
+        jsonify(
+            {
+                "response": result.get("response", ""),
+                "topic": classification["topic"],
+                "confidence": classification["confidence"],
+                "suggested_questions": result.get("suggested_questions", []),
+                "success": True,
+            }
+        ),
+        200,
+    )
 
 
 def _persist_chat(
@@ -640,14 +652,16 @@ def _persist_chat(
         return
     try:
         from services.firebase_service import FirebaseService
+
         fb = FirebaseService.get_instance()
         fb.save_message(session_id, "user", user_message)
         fb.save_message(
-            session_id, "model",
+            session_id,
+            "model",
             result.get("response", ""),
             {"topic": classification["topic"]},
         )
-    except Exception:
+    except (ValueError, KeyError, ConnectionError, RuntimeError):
         logger.warning("Firebase persistence failed — continuing without.")
 
 
@@ -661,7 +675,12 @@ def _handle_translate() -> tuple[Response, int]:
 
     data = request.get_json(silent=True)
     if not data or not data.get("text"):
-        return jsonify({"error": "A 'text' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'text' field is required.", "success": False}
+            ),
+            400,
+        )
 
     req = TranslateRequest(
         text=sanitise_input(str(data["text"])),
@@ -669,10 +688,17 @@ def _handle_translate() -> tuple[Response, int]:
         source_language=data.get("source_language"),
     )
     if not req.text:
-        return jsonify({"error": "A 'text' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'text' field is required.", "success": False}
+            ),
+            400,
+        )
 
     svc = TranslateService.get_instance()
-    result = svc.translate_text(req.text, req.target_language, req.source_language)
+    result = svc.translate_text(
+        req.text, req.target_language, req.source_language
+    )
     status_code = 200 if result.get("success") else 500
     return jsonify(result), status_code
 
@@ -687,7 +713,12 @@ def _handle_detect_language() -> tuple[Response, int]:
 
     data = request.get_json(silent=True)
     if not data or not data.get("text"):
-        return jsonify({"error": "A 'text' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'text' field is required.", "success": False}
+            ),
+            400,
+        )
 
     svc = TranslateService.get_instance()
     return jsonify(svc.detect_language(sanitise_input(str(data["text"])))), 200
@@ -703,7 +734,12 @@ def _handle_tts() -> tuple[Response, int]:
 
     data = request.get_json(silent=True)
     if not data or not data.get("text"):
-        return jsonify({"error": "A 'text' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'text' field is required.", "success": False}
+            ),
+            400,
+        )
 
     req = TTSRequest(
         text=sanitise_input(str(data["text"])),
@@ -711,7 +747,12 @@ def _handle_tts() -> tuple[Response, int]:
         speaking_rate=float(data.get("speaking_rate", 1.0)),
     )
     if not req.text:
-        return jsonify({"error": "A 'text' field is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'text' field is required.", "success": False}
+            ),
+            400,
+        )
 
     svc = TTSService.get_instance()
     result = svc.synthesize(req.text, req.language, req.speaking_rate)
@@ -729,7 +770,12 @@ def _handle_news_search() -> tuple[Response, int]:
 
     query = sanitise_input(request.args.get("query", ""))
     if not query:
-        return jsonify({"error": "A 'query' parameter is required.", "success": False}), 400
+        return (
+            jsonify(
+                {"error": "A 'query' parameter is required.", "success": False}
+            ),
+            400,
+        )
 
     num = min(int(request.args.get("num", "5")), 10)
 
@@ -752,7 +798,10 @@ def _handle_quiz_score(session_id: str) -> tuple[Response, int]:
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required.", "success": False}), 400
+        return (
+            jsonify({"error": "Request body is required.", "success": False}),
+            400,
+        )
 
     req = QuizScoreRequest(
         score=int(data.get("score", 0)),
@@ -771,63 +820,109 @@ FALLBACK_QUESTIONS = [
         "question": "What is the minimum voting age in most democratic countries?",
         "options": ["16", "18", "21", "25"],
         "correct_answer": "18",
-        "explanation": "In the majority of democratic nations, including the USA, UK, and India, the legal voting age is 18."
+        "explanation": "In the majority of democratic nations, including the USA, UK, and India, the legal voting age is 18.",
     },
     {
         "question": "Which of these is NOT a primary function of an election commission?",
-        "options": ["Registering voters", "Counting ballots", "Passing new laws", "Setting election dates"],
+        "options": [
+            "Registering voters",
+            "Counting ballots",
+            "Passing new laws",
+            "Setting election dates",
+        ],
         "correct_answer": "Passing new laws",
-        "explanation": "Election commissions are responsible for administering elections, while passing laws is the duty of the legislature."
+        "explanation": "Election commissions are responsible for administering elections, while passing laws is the duty of the legislature.",
     },
     {
         "question": "In the United States, what system determines the winner of a presidential election?",
-        "options": ["Popular Vote", "Electoral College", "Parliamentary Majority", "Proportional Representation"],
+        "options": [
+            "Popular Vote",
+            "Electoral College",
+            "Parliamentary Majority",
+            "Proportional Representation",
+        ],
         "correct_answer": "Electoral College",
-        "explanation": "The US uses the Electoral College system, where each state has a certain number of electors based on its congressional representation."
+        "explanation": "The US uses the Electoral College system, where each state has a certain number of electors based on its congressional representation.",
     },
     {
         "question": "In a parliamentary system like the UK or India, who usually becomes the Prime Minister?",
-        "options": ["The candidate with the most national votes", "The leader of the party with the most seats in parliament", "The oldest member of parliament", "A person appointed by the Supreme Court"],
+        "options": [
+            "The candidate with the most national votes",
+            "The leader of the party with the most seats in parliament",
+            "The oldest member of parliament",
+            "A person appointed by the Supreme Court",
+        ],
         "correct_answer": "The leader of the party with the most seats in parliament",
-        "explanation": "The Prime Minister is typically the leader of the party or coalition that commands a majority in the lower house of parliament."
+        "explanation": "The Prime Minister is typically the leader of the party or coalition that commands a majority in the lower house of parliament.",
     },
     {
         "question": "What is a 'Swing State' in US elections?",
-        "options": ["A state that changes its borders", "A state where voting is optional", "A state where both major parties have similar levels of support", "A state that votes first"],
+        "options": [
+            "A state that changes its borders",
+            "A state where voting is optional",
+            "A state where both major parties have similar levels of support",
+            "A state that votes first",
+        ],
         "correct_answer": "A state where both major parties have similar levels of support",
-        "explanation": "Swing states (or battleground states) are states where the race is close and could be won by either Democratic or Republican candidates."
+        "explanation": "Swing states (or battleground states) are states where the race is close and could be won by either Democratic or Republican candidates.",
     },
     {
         "question": "What is the purpose of a primary election?",
-        "options": ["To elect the president", "To select a political party's candidate for an upcoming general election", "To vote on local laws", "To recall a politician"],
+        "options": [
+            "To elect the president",
+            "To select a political party's candidate for an upcoming general election",
+            "To vote on local laws",
+            "To recall a politician",
+        ],
         "correct_answer": "To select a political party's candidate for an upcoming general election",
-        "explanation": "Primary elections narrow down the field of candidates within a political party before the general election."
+        "explanation": "Primary elections narrow down the field of candidates within a political party before the general election.",
     },
     {
         "question": "What does EVM stand for in the context of Indian elections?",
-        "options": ["Electoral Voting Machine", "Electronic Voting Machine", "Election Verification Mechanism", "Early Voting Mandate"],
+        "options": [
+            "Electoral Voting Machine",
+            "Electronic Voting Machine",
+            "Election Verification Mechanism",
+            "Early Voting Mandate",
+        ],
         "correct_answer": "Electronic Voting Machine",
-        "explanation": "India uses Electronic Voting Machines (EVMs) to record votes in state and general elections."
+        "explanation": "India uses Electronic Voting Machines (EVMs) to record votes in state and general elections.",
     },
     {
         "question": "What is 'Proportional Representation'?",
-        "options": ["An electoral system where parties gain seats in proportion to the number of votes cast for them", "A system where the winner takes all seats", "A system where only property owners can vote", "A system where voting is proportional to income"],
+        "options": [
+            "An electoral system where parties gain seats in proportion to the number of votes cast for them",
+            "A system where the winner takes all seats",
+            "A system where only property owners can vote",
+            "A system where voting is proportional to income",
+        ],
         "correct_answer": "An electoral system where parties gain seats in proportion to the number of votes cast for them",
-        "explanation": "In proportional representation systems, if a party wins 30% of the vote, they get roughly 30% of the seats."
+        "explanation": "In proportional representation systems, if a party wins 30% of the vote, they get roughly 30% of the seats.",
     },
     {
         "question": "What is a referendum?",
-        "options": ["An election for local mayors", "A direct vote by the electorate on a particular proposal or issue", "A survey conducted by news agencies", "The process of counting votes"],
+        "options": [
+            "An election for local mayors",
+            "A direct vote by the electorate on a particular proposal or issue",
+            "A survey conducted by news agencies",
+            "The process of counting votes",
+        ],
         "correct_answer": "A direct vote by the electorate on a particular proposal or issue",
-        "explanation": "A referendum allows citizens to vote directly on a specific policy, law, or political issue, rather than for a candidate."
+        "explanation": "A referendum allows citizens to vote directly on a specific policy, law, or political issue, rather than for a candidate.",
     },
     {
         "question": "What is voter turnout?",
-        "options": ["The number of people who register to vote", "The percentage of eligible voters who cast a ballot in an election", "The process of verifying voter identity", "The number of invalid ballots"],
+        "options": [
+            "The number of people who register to vote",
+            "The percentage of eligible voters who cast a ballot in an election",
+            "The process of verifying voter identity",
+            "The number of invalid ballots",
+        ],
         "correct_answer": "The percentage of eligible voters who cast a ballot in an election",
-        "explanation": "Voter turnout measures the participation rate of eligible voters in a given election."
-    }
+        "explanation": "Voter turnout measures the participation rate of eligible voters in a given election.",
+    },
 ]
+
 
 def _handle_quiz_question() -> tuple[Response, int]:
     """Generate a quiz question using Gemini.
@@ -836,53 +931,125 @@ def _handle_quiz_question() -> tuple[Response, int]:
         Tuple of JSON response and HTTP status code.
     """
     from services.gemini_service import GeminiElectionAssistant
+
     try:
         gemini = GeminiElectionAssistant()
         result = gemini.get_quiz_question()
         return jsonify({**result, "success": True}), 200
-    except Exception as exc:
+    except (ValueError, KeyError, ConnectionError, RuntimeError) as exc:
         logger.error(f"{type(exc).__name__}: {str(exc)}", exc_info=True)
         import random
+
         question = random.choice(FALLBACK_QUESTIONS)
         return jsonify({**question, "success": True, "fallback": True}), 200
+
 
 FALLBACK_TIMELINES = {
     "india": {
         "country": "India",
         "timeline": [
-            {"phase": "Announcement", "description": "Election Commission of India announces the schedule and the Model Code of Conduct comes into effect.", "approximate_timeframe": "45-60 days before voting"},
-            {"phase": "Nominations", "description": "Candidates file their nomination papers, which are scrutinised.", "approximate_timeframe": "1 week after announcement"},
-            {"phase": "Campaigning", "description": "Political parties campaign across constituencies.", "approximate_timeframe": "2-3 weeks"},
-            {"phase": "Polling", "description": "Voting takes place in multiple phases across the country.", "approximate_timeframe": "Spread over several weeks"},
-            {"phase": "Counting & Results", "description": "Votes are counted and results are officially declared.", "approximate_timeframe": "1 day, usually a few days after final polling phase"}
+            {
+                "phase": "Announcement",
+                "description": "Election Commission of India announces the schedule and the Model Code of Conduct comes into effect.",
+                "approximate_timeframe": "45-60 days before voting",
+            },
+            {
+                "phase": "Nominations",
+                "description": "Candidates file their nomination papers, which are scrutinised.",
+                "approximate_timeframe": "1 week after announcement",
+            },
+            {
+                "phase": "Campaigning",
+                "description": "Political parties campaign across constituencies.",
+                "approximate_timeframe": "2-3 weeks",
+            },
+            {
+                "phase": "Polling",
+                "description": "Voting takes place in multiple phases across the country.",
+                "approximate_timeframe": "Spread over several weeks",
+            },
+            {
+                "phase": "Counting & Results",
+                "description": "Votes are counted and results are officially declared.",
+                "approximate_timeframe": "1 day, usually a few days after final polling phase",
+            },
         ],
-        "summary": "India's general elections are the largest democratic exercise in the world, managed independently by the Election Commission of India over several phases."
+        "summary": "India's general elections are the largest democratic exercise in the world, managed independently by the Election Commission of India over several phases.",
     },
     "usa": {
         "country": "USA",
         "timeline": [
-            {"phase": "Primaries & Caucuses", "description": "States hold primary elections or caucuses to choose party delegates.", "approximate_timeframe": "January - June of election year"},
-            {"phase": "National Conventions", "description": "Parties officially nominate their Presidential and Vice-Presidential candidates.", "approximate_timeframe": "July - August"},
-            {"phase": "General Election Campaign", "description": "Candidates debate and campaign nationally.", "approximate_timeframe": "September - October"},
-            {"phase": "Election Day", "description": "Voters cast ballots. The Tuesday next after the first Monday in November.", "approximate_timeframe": "Early November"},
-            {"phase": "Electoral College Vote", "description": "Electors officially cast their votes for President.", "approximate_timeframe": "Mid-December"},
-            {"phase": "Inauguration", "description": "The newly elected President takes office.", "approximate_timeframe": "January 20th"}
+            {
+                "phase": "Primaries & Caucuses",
+                "description": "States hold primary elections or caucuses to choose party delegates.",
+                "approximate_timeframe": "January - June of election year",
+            },
+            {
+                "phase": "National Conventions",
+                "description": "Parties officially nominate their Presidential and Vice-Presidential candidates.",
+                "approximate_timeframe": "July - August",
+            },
+            {
+                "phase": "General Election Campaign",
+                "description": "Candidates debate and campaign nationally.",
+                "approximate_timeframe": "September - October",
+            },
+            {
+                "phase": "Election Day",
+                "description": "Voters cast ballots. The Tuesday next after the first Monday in November.",
+                "approximate_timeframe": "Early November",
+            },
+            {
+                "phase": "Electoral College Vote",
+                "description": "Electors officially cast their votes for President.",
+                "approximate_timeframe": "Mid-December",
+            },
+            {
+                "phase": "Inauguration",
+                "description": "The newly elected President takes office.",
+                "approximate_timeframe": "January 20th",
+            },
         ],
-        "summary": "The US Presidential election is a lengthy process involving state primaries, national conventions, and the Electoral College system."
+        "summary": "The US Presidential election is a lengthy process involving state primaries, national conventions, and the Electoral College system.",
     },
     "uk": {
         "country": "UK",
         "timeline": [
-            {"phase": "Dissolution of Parliament", "description": "Parliament is dissolved ahead of the election.", "approximate_timeframe": "25 working days before election"},
-            {"phase": "Nominations", "description": "Candidates must submit their nomination papers.", "approximate_timeframe": "19 working days before election"},
-            {"phase": "Campaign Period", "description": "Parties release manifestos and campaign.", "approximate_timeframe": "3-4 weeks"},
-            {"phase": "Polling Day", "description": "Voters cast their ballots, typically on a Thursday.", "approximate_timeframe": "Election Day"},
-            {"phase": "Counting & Declaration", "description": "Votes are counted overnight and winning Members of Parliament (MPs) are announced.", "approximate_timeframe": "Night of Election Day / Following Morning"},
-            {"phase": "Formation of Government", "description": "The leader of the party with a majority is invited by the Monarch to form a government.", "approximate_timeframe": "Immediately following results"}
+            {
+                "phase": "Dissolution of Parliament",
+                "description": "Parliament is dissolved ahead of the election.",
+                "approximate_timeframe": "25 working days before election",
+            },
+            {
+                "phase": "Nominations",
+                "description": "Candidates must submit their nomination papers.",
+                "approximate_timeframe": "19 working days before election",
+            },
+            {
+                "phase": "Campaign Period",
+                "description": "Parties release manifestos and campaign.",
+                "approximate_timeframe": "3-4 weeks",
+            },
+            {
+                "phase": "Polling Day",
+                "description": "Voters cast their ballots, typically on a Thursday.",
+                "approximate_timeframe": "Election Day",
+            },
+            {
+                "phase": "Counting & Declaration",
+                "description": "Votes are counted overnight and winning Members of Parliament (MPs) are announced.",
+                "approximate_timeframe": "Night of Election Day / Following Morning",
+            },
+            {
+                "phase": "Formation of Government",
+                "description": "The leader of the party with a majority is invited by the Monarch to form a government.",
+                "approximate_timeframe": "Immediately following results",
+            },
         ],
-        "summary": "UK general elections determine the Members of Parliament for the House of Commons, with the majority party leader typically becoming Prime Minister."
-    }
+        "summary": "UK general elections determine the Members of Parliament for the House of Commons, with the majority party leader typically becoming Prime Minister.",
+    },
 }
+
 
 def _handle_timeline() -> tuple[Response, int]:
     """Retrieve an election timeline using Gemini.
@@ -891,6 +1058,7 @@ def _handle_timeline() -> tuple[Response, int]:
         Tuple of JSON response and HTTP status code.
     """
     from services.gemini_service import GeminiElectionAssistant
+
     data = request.get_json(silent=True)
     country = sanitise_input(str(data.get("country", "India")))
 
@@ -898,12 +1066,18 @@ def _handle_timeline() -> tuple[Response, int]:
         gemini = GeminiElectionAssistant()
         result = gemini.get_timeline(country)
         return jsonify({**result, "success": True}), 200
-    except Exception as exc:
+    except (ValueError, KeyError, ConnectionError, RuntimeError) as exc:
         logger.error(f"{type(exc).__name__}: {str(exc)}", exc_info=True)
         key = country.lower()
         if key not in FALLBACK_TIMELINES:
             key = "india"
-        return jsonify({**FALLBACK_TIMELINES[key], "success": True, "fallback": True}), 200
+        return (
+            jsonify(
+                {**FALLBACK_TIMELINES[key], "success": True, "fallback": True}
+            ),
+            200,
+        )
+
 
 def _handle_map() -> tuple[Response, int]:
     """Handle map endpoint request with fallback.
@@ -912,25 +1086,34 @@ def _handle_map() -> tuple[Response, int]:
         Tuple of JSON response and HTTP status code.
     """
     api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
-    
+
     if not api_key:
-        logger.warning("GOOGLE_MAPS_API_KEY is not set. Using OpenStreetMap fallback.")
-        return jsonify({
-            "provider": "openstreetmap",
-            "embed_url": "https://www.openstreetmap.org/export/embed.html",
-            "success": True,
-            "fallback": True
-        }), 200
-        
+        logger.warning(
+            "GOOGLE_MAPS_API_KEY is not set. Using OpenStreetMap fallback."
+        )
+        return (
+            jsonify(
+                {
+                    "provider": "openstreetmap",
+                    "embed_url": "https://www.openstreetmap.org/export/embed.html",
+                    "success": True,
+                    "fallback": True,
+                }
+            ),
+            200,
+        )
+
     query = sanitise_input(request.args.get("q", "polling stations near me"))
     import urllib.parse
+
     encoded_query = urllib.parse.quote(query)
     embed_url = f"https://www.google.com/maps/embed/v1/place?key={api_key}&q={encoded_query}"
-    return jsonify({
-        "provider": "google",
-        "embed_url": embed_url,
-        "success": True
-    }), 200
+    return (
+        jsonify(
+            {"provider": "google", "embed_url": embed_url, "success": True}
+        ),
+        200,
+    )
 
 
 # ---------------------------------------------------------------------------

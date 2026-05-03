@@ -3,13 +3,73 @@ Application configuration constants for the Election Education Assistant.
 
 Centralises all magic strings, numbers, and environment variable keys.
 Import from this module instead of using hardcoded values.
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from config import AppConfig
+    cfg = AppConfig()
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, List
+
+__all__: List[str] = [
+    "ENV_GOOGLE_API_KEY",
+    "ENV_GOOGLE_CLOUD_PROJECT",
+    "ENV_VERTEX_LOCATION",
+    "ENV_TRANSLATE_API_KEY",
+    "ENV_TTS_API_KEY",
+    "ENV_SEARCH_API_KEY",
+    "ENV_SEARCH_ENGINE_ID",
+    "ENV_GA_MEASUREMENT_ID",
+    "ENV_MAPS_API_KEY",
+    "ENV_FIREBASE_CREDENTIALS",
+    "ENV_FLASK_SECRET_KEY",
+    "ENV_ALLOWED_ORIGINS",
+    "ENV_PORT",
+    "ENV_SEARCH_TIMEOUT",
+    "APP_VERSION",
+    "DEFAULT_PORT",
+    "MAX_CONTENT_LENGTH",
+    "RATE_LIMIT_DEFAULT",
+    "RATE_LIMIT_HOURLY",
+    "RATE_LIMIT_CHAT",
+    "RATE_LIMIT_TRANSLATE",
+    "RATE_LIMIT_TTS",
+    "RATE_LIMIT_NEWS",
+    "RATE_LIMIT_SESSION",
+    "RATE_LIMIT_QUIZ",
+    "RATE_LIMIT_TOPICS",
+    "RATE_LIMIT_LANGUAGES",
+    "RATE_LIMIT_DETECT",
+    "GEMINI_MODEL_NAME",
+    "GEMINI_TEMPERATURE",
+    "GEMINI_RESPONSE_MIME",
+    "GEMINI_HISTORY_LIMIT",
+    "GEMINI_MAX_RETRIES",
+    "GEMINI_RETRY_DELAY",
+    "GEMINI_RETRY_BASE",
+    "MAX_MESSAGE_LENGTH",
+    "MAX_TTS_TEXT_LENGTH",
+    "SEARCH_MAX_RESULTS",
+    "SEARCH_MAX_RESULTS_UPPER",
+    "SEARCH_CACHE_TTL_SECONDS",
+    "SEARCH_BASE_URL",
+    "SEARCH_TIMEOUT_DEFAULT",
+    "TTS_MAX_CACHE_SIZE",
+    "VERTEX_MODEL_NAME",
+    "VERTEX_DEFAULT_LOCATION",
+    "GA_DEFAULT_MEASUREMENT_ID",
+    "PAGINATION_DEFAULT_PAGE",
+    "PAGINATION_DEFAULT_PER_PAGE",
+    "PAGINATION_MAX_PER_PAGE",
+    "CSP_DIRECTIVES",
+    "AppConfig",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -122,9 +182,7 @@ CSP_DIRECTIVES: Final[dict[str, str]] = {
         "https://region1.google-analytics.com"
     ),
     "frame-src": (
-        "'self' "
-        "https://www.google.com "
-        "https://maps.google.com"
+        "'self' " "https://www.google.com " "https://maps.google.com"
     ),
     "media-src": "'self' blob: data:",
 }
@@ -144,19 +202,27 @@ class AppConfig:
         default_factory=lambda: os.environ.get(ENV_GOOGLE_CLOUD_PROJECT, "")
     )
     vertex_location: str = field(
-        default_factory=lambda: os.environ.get(ENV_VERTEX_LOCATION, VERTEX_DEFAULT_LOCATION)
+        default_factory=lambda: os.environ.get(
+            ENV_VERTEX_LOCATION, VERTEX_DEFAULT_LOCATION
+        )
     )
     flask_secret_key: str = field(
-        default_factory=lambda: os.environ.get(ENV_FLASK_SECRET_KEY, os.urandom(32).hex())
+        default_factory=lambda: os.environ.get(
+            ENV_FLASK_SECRET_KEY, os.urandom(32).hex()
+        )
     )
     ga_measurement_id: str = field(
-        default_factory=lambda: os.environ.get(ENV_GA_MEASUREMENT_ID, GA_DEFAULT_MEASUREMENT_ID)
+        default_factory=lambda: os.environ.get(
+            ENV_GA_MEASUREMENT_ID, GA_DEFAULT_MEASUREMENT_ID
+        )
     )
     google_maps_api_key: str = field(
         default_factory=lambda: os.environ.get(ENV_MAPS_API_KEY, "")
     )
     port: int = field(
-        default_factory=lambda: int(os.environ.get(ENV_PORT, str(DEFAULT_PORT)))
+        default_factory=lambda: int(
+            os.environ.get(ENV_PORT, str(DEFAULT_PORT))
+        )
     )
     allowed_origins: str = field(
         default_factory=lambda: os.environ.get(ENV_ALLOWED_ORIGINS, "*")

@@ -10,6 +10,13 @@ Key features:
     - Multi-turn conversation with history trimming
     - Retry logic with exponential backoff
     - Comprehensive safety settings
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from services.gemini_service import GeminiElectionAssistant
+    assistant = GeminiElectionAssistant()
+    response = assistant.chat("How do I vote?")
 """
 
 from __future__ import annotations
@@ -22,15 +29,12 @@ from functools import wraps
 from typing import Any, Callable, Dict, Optional
 
 import google.generativeai as genai
-genai.configure(api_key=os.environ.get("GOOGLE_API_KEY", ""))
-model = genai.GenerativeModel("gemini-2.0-flash")
 from google.generativeai.types import HarmBlockThreshold, HarmCategory
 
 from config import (
     ENV_GOOGLE_API_KEY,
     GEMINI_HISTORY_LIMIT,
     GEMINI_MAX_RETRIES,
-    GEMINI_MODEL_NAME,
     GEMINI_RESPONSE_MIME,
     GEMINI_RETRY_BASE,
     GEMINI_RETRY_DELAY,
@@ -38,6 +42,8 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["GeminiElectionAssistant", "retry_with_exponential_backoff"]
 
 # ---------------------------------------------------------------------------
 # System prompt — non-partisan election education
@@ -84,6 +90,7 @@ def retry_with_exponential_backoff(
     Returns:
         The decorator function.
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -95,17 +102,24 @@ def retry_with_exponential_backoff(
                     if attempt == max_retries - 1:
                         logger.error(
                             "Function %s failed after %d attempts: %s",
-                            func.__name__, max_retries, exc,
+                            func.__name__,
+                            max_retries,
+                            exc,
                         )
                         raise
                     logger.warning(
                         "Attempt %d failed for %s: %s. Retrying in %.1fs…",
-                        attempt + 1, func.__name__, exc, delay,
+                        attempt + 1,
+                        func.__name__,
+                        exc,
+                        delay,
                     )
                     time.sleep(delay)
                     delay *= exponential_base
             return None  # unreachable but satisfies type checkers
+
         return wrapper
+
     return decorator
 
 
@@ -136,9 +150,18 @@ class GeminiElectionAssistant:
             api_key: Google API key. Falls back to the GOOGLE_API_KEY
                 environment variable if not provided.
         """
-        self.api_key = api_key or os.environ.get(ENV_GOOGLE_API_KEY) or os.environ.get("GOOGLE_API_KEY", "")
+        self.api_key = (
+            api_key
+            or os.environ.get(ENV_GOOGLE_API_KEY)
+            or os.environ.get("GOOGLE_API_KEY", "")
+        )
         if not self.api_key:
-            logger.warning("GOOGLE_API_KEY is not set. Gemini API calls will use fallbacks.")
+            logger.warning(
+                "GOOGLE_API_KEY is not set. Gemini API calls will use fallbacks."
+            )
+        else:
+            genai.configure(api_key=self.api_key)
+
         self.model_name: str = "gemini-2.0-flash"
         self.generation_config = self._build_generation_config()
         self.safety_settings = self._build_safety_settings()
@@ -205,8 +228,12 @@ class GeminiElectionAssistant:
         """
         max_messages = self.history_limit * 2
         if len(self.chat_session.history) > max_messages:
-            self.chat_session.history = self.chat_session.history[-max_messages:]
-            logger.debug("Trimmed history to last %d turns.", self.history_limit)
+            self.chat_session.history = self.chat_session.history[
+                -max_messages:
+            ]
+            logger.debug(
+                "Trimmed history to last %d turns.", self.history_limit
+            )
 
     @staticmethod
     def _parse_json_response(text: str) -> Dict[str, Any]:
@@ -221,7 +248,9 @@ class GeminiElectionAssistant:
         try:
             return json.loads(text)
         except json.JSONDecodeError as exc:
-            logger.error("Failed to parse JSON: %s (error: %s)", text[:200], exc)
+            logger.error(
+                "Failed to parse JSON: %s (error: %s)", text[:200], exc
+            )
             return {
                 "error": "Failed to parse model response as JSON",
                 "raw_response": text,
@@ -263,7 +292,9 @@ class GeminiElectionAssistant:
         logger.info("Sending chat message: %s", user_message[:100])
         try:
             if not self.api_key or not self.chat_session:
-                raise ValueError("Gemini API is not configured or chat session failed to initialize.")
+                raise ValueError(
+                    "Gemini API is not configured or chat session failed to initialize."
+                )
             response = self.chat_session.send_message(prompt)
             self._trim_history()
             logger.debug("Received chat response: %s", response.text[:200])
@@ -273,7 +304,10 @@ class GeminiElectionAssistant:
             return {
                 "response": "I'm currently operating in offline mode. I can answer basic questions about elections, but my full knowledge base is temporarily unavailable.",
                 "topic": "General",
-                "suggested_questions": ["What is a democracy?", "How do I register to vote?"]
+                "suggested_questions": [
+                    "What is a democracy?",
+                    "How do I register to vote?",
+                ],
             }
 
     @retry_with_exponential_backoff(max_retries=GEMINI_MAX_RETRIES)

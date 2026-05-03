@@ -35,11 +35,13 @@ def app():
         Configured Flask application in testing mode.
     """
     import os
+
     os.environ.setdefault("GEMINI_API_KEY", "test-key")
     os.environ.setdefault("GOOGLE_API_KEY", "test-key")
     os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 
     from main import create_app
+
     application = create_app()
     application.config["TESTING"] = True
     return application
@@ -139,7 +141,9 @@ class TestChatEndpoint:
 
     def test_chat_rejects_empty_body(self, client):
         """Chat should reject empty request body."""
-        resp = client.post("/api/chat", content_type="application/json", data="{}")
+        resp = client.post(
+            "/api/chat", content_type="application/json", data="{}"
+        )
         assert resp.status_code == 400
         data = resp_json(resp)
         assert data["success"] is False
@@ -169,7 +173,10 @@ class TestChatEndpoint:
     def test_chat_success(self, mock_gemini_cls, mock_vertex_cls, client):
         """Chat should return a successful response with mocked services."""
         mock_vertex = MagicMock()
-        mock_vertex.moderate_content.return_value = {"safe": True, "reason": None}
+        mock_vertex.moderate_content.return_value = {
+            "safe": True,
+            "reason": None,
+        }
         mock_vertex.classify_topic.return_value = {
             "topic": "voter_registration",
             "confidence": 0.85,
@@ -215,10 +222,15 @@ class TestChatEndpoint:
 
     @patch("services.vertex_service.VertexService.get_instance")
     @patch("services.gemini_service.GeminiElectionAssistant")
-    def test_chat_gemini_failure(self, mock_gemini_cls, mock_vertex_cls, client):
+    def test_chat_gemini_failure(
+        self, mock_gemini_cls, mock_vertex_cls, client
+    ):
         """Chat should return 500 when Gemini fails."""
         mock_vertex = MagicMock()
-        mock_vertex.moderate_content.return_value = {"safe": True, "reason": None}
+        mock_vertex.moderate_content.return_value = {
+            "safe": True,
+            "reason": None,
+        }
         mock_vertex.classify_topic.return_value = {
             "topic": "general_election_info",
             "confidence": 0.5,
@@ -226,7 +238,7 @@ class TestChatEndpoint:
         mock_vertex_cls.return_value = mock_vertex
 
         mock_gemini = MagicMock()
-        mock_gemini.chat.side_effect = Exception("API down")
+        mock_gemini.chat.side_effect = RuntimeError("API down")
         mock_gemini_cls.return_value = mock_gemini
 
         resp = client.post(
@@ -409,6 +421,7 @@ class TestVertexServiceHeuristic:
     def test_blocked_pattern_detected(self):
         """Blocked patterns should be flagged as unsafe."""
         from services.vertex_service import VertexService
+
         svc = VertexService.__new__(VertexService)
         svc._model = None
         result = svc.moderate_content("how to steal election results")
@@ -417,6 +430,7 @@ class TestVertexServiceHeuristic:
     def test_safe_message_passes(self):
         """Safe messages should pass moderation."""
         from services.vertex_service import VertexService
+
         svc = VertexService.__new__(VertexService)
         svc._model = None
         result = svc.moderate_content("How does voter registration work?")
@@ -425,19 +439,28 @@ class TestVertexServiceHeuristic:
     def test_heuristic_classify_registration(self):
         """'register' keyword should classify as voter_registration."""
         from services.vertex_service import VertexService
-        result = VertexService._heuristic_classify("How do I register to vote?")
+
+        result = VertexService._heuristic_classify(
+            "How do I register to vote?"
+        )
         assert result["topic"] == "voter_registration"
 
     def test_heuristic_classify_electoral_college(self):
         """'electoral college' should classify correctly."""
         from services.vertex_service import VertexService
-        result = VertexService._heuristic_classify("Explain the electoral college")
+
+        result = VertexService._heuristic_classify(
+            "Explain the electoral college"
+        )
         assert result["topic"] == "electoral_college"
 
     def test_heuristic_classify_off_topic(self):
         """Non-election questions should classify as off_topic."""
         from services.vertex_service import VertexService
-        result = VertexService._heuristic_classify("What is the weather today?")
+
+        result = VertexService._heuristic_classify(
+            "What is the weather today?"
+        )
         assert result["topic"] == "off_topic"
 
 
@@ -454,7 +477,7 @@ class TestAccessibility:
         """HTML should contain ARIA labels for interactive elements."""
         resp = client.get("/")
         html = resp.data.decode("utf-8")
-        assert 'aria-label=' in html
+        assert "aria-label=" in html
         assert 'role="log"' in html or 'role="tabpanel"' in html
 
     @pytest.mark.accessibility
@@ -462,14 +485,14 @@ class TestAccessibility:
         """HTML should have a skip navigation link."""
         resp = client.get("/")
         html = resp.data.decode("utf-8")
-        assert 'skip-link' in html or 'skip-nav' in html
+        assert "skip-link" in html or "skip-nav" in html
 
     @pytest.mark.accessibility
     def test_sr_only_labels(self, client):
         """HTML should have screen-reader-only labels."""
         resp = client.get("/")
         html = resp.data.decode("utf-8")
-        assert 'sr-only' in html
+        assert "sr-only" in html
 
     @pytest.mark.accessibility
     def test_lang_attribute(self, client):
@@ -490,4 +513,4 @@ class TestAccessibility:
         """HTML should have an aria-live region for announcements."""
         resp = client.get("/")
         html = resp.data.decode("utf-8")
-        assert 'aria-live=' in html
+        assert "aria-live=" in html

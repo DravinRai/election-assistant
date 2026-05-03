@@ -6,6 +6,13 @@ Uses Google Cloud TTS API to:
     - Use WaveNet voices for natural-sounding speech
     - Cache generated audio to avoid redundant API calls
     - Support multiple languages matching the Translate service
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from services.tts_service import TTSService
+    svc = TTSService.get_instance()
+    audio = svc.synthesize("Hello")
 """
 
 from __future__ import annotations
@@ -35,10 +42,13 @@ VOICE_MAP: dict[str, tuple[str, str, str]] = {
 # Guard import
 try:
     from google.cloud import texttospeech
+
     _TTS_AVAILABLE = True
 except ImportError:
     _TTS_AVAILABLE = False
     logger.info("Google Cloud TTS SDK not installed — TTS disabled.")
+
+__all__ = ["TTSService"]
 
 
 class TTSService:
@@ -121,7 +131,10 @@ class TTSService:
             return cached
 
         if not self._client:
-            return {"error": "Text-to-Speech service is not available.", "success": False}
+            return {
+                "error": "Text-to-Speech service is not available.",
+                "success": False,
+            }
 
         return self._perform_synthesis(text, language, speaking_rate)
 
@@ -133,7 +146,11 @@ class TTSService:
         """
         voices = {}
         for lang, (code, name, gender) in VOICE_MAP.items():
-            voices[lang] = {"language_code": code, "voice_name": name, "gender": gender}
+            voices[lang] = {
+                "language_code": code,
+                "voice_name": name,
+                "gender": gender,
+            }
         return {"voices": voices, "success": True}
 
     # ------------------------------------------------------------------
@@ -151,7 +168,9 @@ class TTSService:
             Text truncated to MAX_TTS_TEXT_LENGTH if necessary.
         """
         if len(text) > MAX_TTS_TEXT_LENGTH:
-            logger.warning("Text truncated to %d chars for TTS.", MAX_TTS_TEXT_LENGTH)
+            logger.warning(
+                "Text truncated to %d chars for TTS.", MAX_TTS_TEXT_LENGTH
+            )
             return text[:MAX_TTS_TEXT_LENGTH] + "..."
         return text
 
@@ -204,7 +223,9 @@ class TTSService:
             response = self._client.synthesize_speech(
                 input=synthesis_input, voice=voice, audio_config=audio_config
             )
-            audio_b64 = base64.b64encode(response.audio_content).decode("utf-8")
+            audio_b64 = base64.b64encode(response.audio_content).decode(
+                "utf-8"
+            )
 
             cache_key = self._cache_key(text, language, rate)
             self._put_cache(cache_key, audio_b64)
@@ -233,11 +254,14 @@ class TTSService:
         """
         lang_code, voice_name, gender_str = voice_cfg
         gender = getattr(
-            texttospeech.SsmlVoiceGender, gender_str,
+            texttospeech.SsmlVoiceGender,
+            gender_str,
             texttospeech.SsmlVoiceGender.NEUTRAL,
         )
         return texttospeech.VoiceSelectionParams(
-            language_code=lang_code, name=voice_name, ssml_gender=gender,
+            language_code=lang_code,
+            name=voice_name,
+            ssml_gender=gender,
         )
 
     # ------------------------------------------------------------------

@@ -16,6 +16,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_singleton():
     from services.search_service import SearchService
+
     SearchService._instance = None
     yield
     SearchService._instance = None
@@ -26,12 +27,14 @@ class TestSearchService:
 
     def test_singleton_pattern(self):
         from services.search_service import SearchService
+
         a = SearchService.get_instance()
         b = SearchService.get_instance()
         assert a is b
 
     def test_search_empty_query(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         result = svc.search_news("")
         assert result["success"] is False
@@ -39,12 +42,14 @@ class TestSearchService:
 
     def test_search_whitespace_query(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         result = svc.search_news("   ")
         assert result["success"] is False
 
     def test_fallback_when_no_api_key(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         svc._api_key = ""
         svc._cx = ""
@@ -55,6 +60,7 @@ class TestSearchService:
 
     def test_num_results_clamped(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         svc._api_key = ""
         # Should not crash with out-of-range values
@@ -63,6 +69,7 @@ class TestSearchService:
 
     def test_cache_key_deterministic(self):
         from services.search_service import SearchService
+
         k1 = SearchService._cache_key("test query", 5)
         k2 = SearchService._cache_key("test query", 5)
         k3 = SearchService._cache_key("test query", 3)
@@ -72,6 +79,7 @@ class TestSearchService:
     def test_cache_hit(self):
         from services.search_service import SearchService
         import time
+
         svc = SearchService()
         svc._api_key = "key"
         svc._cx = "cx"
@@ -88,6 +96,7 @@ class TestSearchService:
     def test_cache_expiry(self):
         from services.search_service import SearchService
         import time
+
         svc = SearchService()
         key = svc._cache_key("old query", 5)
         svc._cache[key] = {
@@ -100,6 +109,7 @@ class TestSearchService:
     @patch("services.search_service.requests.get")
     def test_successful_api_call(self, mock_get):
         from services.search_service import SearchService
+
         svc = SearchService()
         svc._api_key = "test-key"
         svc._cx = "test-cx"
@@ -129,6 +139,7 @@ class TestSearchService:
     def test_timeout_handling(self, mock_get):
         import requests as req
         from services.search_service import SearchService
+
         svc = SearchService()
         svc._api_key = "test-key"
         svc._cx = "test-cx"
@@ -142,6 +153,7 @@ class TestSearchService:
     def test_request_exception_handling(self, mock_get):
         import requests as req
         from services.search_service import SearchService
+
         svc = SearchService()
         svc._api_key = "test-key"
         svc._cx = "test-cx"
@@ -153,6 +165,7 @@ class TestSearchService:
 
     def test_search_news_none_query(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         result = svc.search_news(None)
         assert result["success"] is False
@@ -160,24 +173,34 @@ class TestSearchService:
 
     def test_parse_item_missing_pagemap(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         item = {"title": "T", "snippet": "S", "link": "L", "displayLink": "D"}
         result = svc._parse_item(item)
         assert result["thumbnail"] == ""
 
     def test_init_no_config(self):
-        with patch.dict(os.environ, {"GOOGLE_SEARCH_API_KEY": "", "GOOGLE_SEARCH_ENGINE_ID": ""}, clear=True):
+        with patch.dict(
+            os.environ,
+            {"GOOGLE_SEARCH_API_KEY": "", "GOOGLE_SEARCH_ENGINE_ID": ""},
+            clear=True,
+        ):
             from services.search_service import SearchService
+
             svc = SearchService()
             assert svc._api_key == ""
             assert svc._cx == ""
 
     def test_parse_item_with_thumbnail(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         item = {
-            "title": "T", "snippet": "S", "link": "L", "displayLink": "D",
-            "pagemap": {"cse_thumbnail": [{"src": "https://thumb.jpg"}]}
+            "title": "T",
+            "snippet": "S",
+            "link": "L",
+            "displayLink": "D",
+            "pagemap": {"cse_thumbnail": [{"src": "https://thumb.jpg"}]},
         }
         result = svc._parse_item(item)
         assert result["thumbnail"] == "https://thumb.jpg"
@@ -185,6 +208,7 @@ class TestSearchService:
     def test_get_cached_valid(self):
         from services.search_service import SearchService
         import time
+
         svc = SearchService()
         key = "test_key"
         svc._cache[key] = {"results": ["item1"], "timestamp": time.time()}
@@ -192,6 +216,7 @@ class TestSearchService:
 
     def test_put_cache_logic(self):
         from services.search_service import SearchService
+
         svc = SearchService()
         svc._put_cache("new_key", ["itemA"])
         assert "new_key" in svc._cache
@@ -200,10 +225,14 @@ class TestSearchService:
     def test_perform_search_timeout(self):
         from services.search_service import SearchService
         import requests
+
         svc = SearchService()
         svc._api_key = "k"
         svc._cx = "c"
-        with patch("services.search_service.requests.get", side_effect=requests.Timeout("Timeout")):
+        with patch(
+            "services.search_service.requests.get",
+            side_effect=requests.Timeout("Timeout"),
+        ):
             result = svc._perform_search("query", 5)
             assert result["success"] is True
             assert result["fallback"] is True
@@ -212,18 +241,26 @@ class TestSearchService:
     def test_perform_search_request_exception(self):
         from services.search_service import SearchService
         import requests
+
         svc = SearchService()
         svc._api_key = "k"
         svc._cx = "c"
-        with patch("services.search_service.requests.get", side_effect=requests.RequestException("Error")):
+        with patch(
+            "services.search_service.requests.get",
+            side_effect=requests.RequestException("Error"),
+        ):
             result = svc._perform_search("query", 5)
             assert result["success"] is True
             assert result["fallback"] is True
             assert result["error"] == "Error"
-            
+
     def test_init_log_success(self):
-        with patch.dict(os.environ, {"GOOGLE_SEARCH_API_KEY": "k", "GOOGLE_SEARCH_ENGINE_ID": "c"}):
+        with patch.dict(
+            os.environ,
+            {"GOOGLE_SEARCH_API_KEY": "k", "GOOGLE_SEARCH_ENGINE_ID": "c"},
+        ):
             from services.search_service import SearchService
+
             with patch("services.search_service.logger.info") as mock_log:
                 SearchService()
                 mock_log.assert_any_call("SearchService initialised.")

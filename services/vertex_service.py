@@ -8,6 +8,13 @@ Uses Vertex AI's text models to:
 
 Falls back to keyword-based heuristics when the Vertex AI SDK
 is not installed or the project is not configured.
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from services.vertex_service import VertexService
+    svc = VertexService.get_instance()
+    res = svc.moderate_content("Hello")
 """
 
 from __future__ import annotations
@@ -34,7 +41,9 @@ try:
     _VERTEX_AVAILABLE = True
 except ImportError:
     _VERTEX_AVAILABLE = False
-    logger.info("Vertex AI SDK not installed — falling back to heuristic moderation.")
+    logger.info(
+        "Vertex AI SDK not installed — falling back to heuristic moderation."
+    )
 
 # ---------------------------------------------------------------------------
 # Election-related topic taxonomy
@@ -56,20 +65,54 @@ ELECTION_TOPICS: list[str] = [
 
 # Simple keyword sets for the heuristic fallback
 _ELECTION_KEYWORDS: set[str] = {
-    "vote", "voting", "voter", "ballot", "election", "candidate",
-    "register", "registration", "poll", "polling", "precinct",
-    "electoral", "college", "primary", "caucus", "runoff",
-    "absentee", "mail-in", "early voting", "gerrymandering",
-    "redistricting", "campaign", "referendum", "proposition",
-    "civic", "democracy", "democratic", "republic",
-    "senator", "representative", "congress", "president",
-    "governor", "mayor", "legislature", "certification",
+    "vote",
+    "voting",
+    "voter",
+    "ballot",
+    "election",
+    "candidate",
+    "register",
+    "registration",
+    "poll",
+    "polling",
+    "precinct",
+    "electoral",
+    "college",
+    "primary",
+    "caucus",
+    "runoff",
+    "absentee",
+    "mail-in",
+    "early voting",
+    "gerrymandering",
+    "redistricting",
+    "campaign",
+    "referendum",
+    "proposition",
+    "civic",
+    "democracy",
+    "democratic",
+    "republic",
+    "senator",
+    "representative",
+    "congress",
+    "president",
+    "governor",
+    "mayor",
+    "legislature",
+    "certification",
 }
 
 _BLOCKED_PATTERNS: set[str] = {
-    "hack", "exploit", "steal election", "voter fraud scheme",
-    "suppress votes", "fake ballots", "rig election",
+    "hack",
+    "exploit",
+    "steal election",
+    "voter fraud scheme",
+    "suppress votes",
+    "fake ballots",
+    "rig election",
 }
+__all__ = ["VertexService"]
 
 
 class VertexService:
@@ -89,7 +132,9 @@ class VertexService:
     def __init__(self) -> None:
         """Initialise the VertexService with optional Vertex AI backend."""
         self.project_id: str = os.environ.get(ENV_GOOGLE_CLOUD_PROJECT, "")
-        self.location: str = os.environ.get(ENV_VERTEX_LOCATION, VERTEX_DEFAULT_LOCATION)
+        self.location: str = os.environ.get(
+            ENV_VERTEX_LOCATION, VERTEX_DEFAULT_LOCATION
+        )
         self._model = None
 
         if _VERTEX_AVAILABLE and self.project_id:
@@ -111,7 +156,9 @@ class VertexService:
                 self.location,
             )
         except Exception:
-            logger.exception("Failed to initialise Vertex AI — using fallback.")
+            logger.exception(
+                "Failed to initialise Vertex AI — using fallback."
+            )
 
     @classmethod
     def get_instance(cls) -> VertexService:
@@ -287,12 +334,28 @@ class VertexService:
 
         # Ordered by specificity (most specific first)
         rules: list[tuple[tuple[str, ...], str, float]] = [
-            (("register", "registration", "sign up to vote"), "voter_registration", 0.7),
-            (("absentee", "mail-in", "early voting", "how to vote"), "voting_methods", 0.7),
+            (
+                ("register", "registration", "sign up to vote"),
+                "voter_registration",
+                0.7,
+            ),
+            (
+                ("absentee", "mail-in", "early voting", "how to vote"),
+                "voting_methods",
+                0.7,
+            ),
             (("electoral college",), "electoral_college", 0.8),
-            (("ballot measure", "referendum", "proposition"), "ballot_measures", 0.7),
+            (
+                ("ballot measure", "referendum", "proposition"),
+                "ballot_measures",
+                0.7,
+            ),
             (("security", "secure", "integrity"), "election_security", 0.6),
-            (("campaign", "donation", "finance", "pac"), "campaign_finance", 0.7),
+            (
+                ("campaign", "donation", "finance", "pac"),
+                "campaign_finance",
+                0.7,
+            ),
             (("redistrict", "gerrymander"), "redistricting", 0.8),
         ]
 

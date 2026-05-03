@@ -3,6 +3,13 @@ Google Custom Search Service — election news search.
 
 Uses Google Custom Search JSON API to search for election-related
 news articles with result caching and fallback mode.
+
+Author: Ankit Rai
+Version: 2.1.0
+Usage example:
+    from services.search_service import SearchService
+    svc = SearchService.get_instance()
+    news = svc.search_news("election 2026")
 """
 
 from __future__ import annotations
@@ -28,6 +35,8 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["SearchService"]
+
 
 class SearchService:
     """Fetch election news via Google Custom Search JSON API."""
@@ -39,7 +48,9 @@ class SearchService:
         self._api_key = os.environ.get(ENV_SEARCH_API_KEY, "")
         self._cx = os.environ.get(ENV_SEARCH_ENGINE_ID, "")
         self._base_url = SEARCH_BASE_URL
-        self._timeout = int(os.environ.get(ENV_SEARCH_TIMEOUT, str(SEARCH_TIMEOUT_DEFAULT)))
+        self._timeout = int(
+            os.environ.get(ENV_SEARCH_TIMEOUT, str(SEARCH_TIMEOUT_DEFAULT))
+        )
         self._cache: dict[str, dict[str, Any]] = {}
 
         if self._api_key and self._cx:
@@ -54,7 +65,9 @@ class SearchService:
             cls._instance = cls()
         return cls._instance
 
-    def search_news(self, query: str, num_results: int = SEARCH_MAX_RESULTS) -> dict[str, Any]:
+    def search_news(
+        self, query: str, num_results: int = SEARCH_MAX_RESULTS
+    ) -> dict[str, Any]:
         """Search for election-related news.
 
         Args:
@@ -71,7 +84,12 @@ class SearchService:
         cache_key = self._cache_key(query, num_results)
         cached = self._get_cached(cache_key)
         if cached is not None:
-            return {"results": cached, "query": query, "cached": True, "success": True}
+            return {
+                "results": cached,
+                "query": query,
+                "cached": True,
+                "success": True,
+            }
         if not self._api_key or not self._cx:
             return self._fallback_results(query)
         return self._perform_search(query, num_results)
@@ -79,15 +97,33 @@ class SearchService:
     def _perform_search(self, query: str, num: int) -> dict[str, Any]:
         """Execute the API call."""
         try:
-            params = {"key": self._api_key, "cx": self._cx, "q": f"election {query}", "num": num, "sort": "date", "safe": "active"}
-            resp = requests.get(self._base_url, params=params, timeout=self._timeout)
+            params = {
+                "key": self._api_key,
+                "cx": self._cx,
+                "q": f"election {query}",
+                "num": num,
+                "sort": "date",
+                "safe": "active",
+            }
+            resp = requests.get(
+                self._base_url, params=params, timeout=self._timeout
+            )
             resp.raise_for_status()
             data = resp.json()
             results = [self._parse_item(i) for i in data.get("items", [])]
             self._put_cache(self._cache_key(query, num), results)
-            return {"results": results, "query": query, "total_results": data.get("searchInformation", {}).get("totalResults", "0"), "success": True}
+            return {
+                "results": results,
+                "query": query,
+                "total_results": data.get("searchInformation", {}).get(
+                    "totalResults", "0"
+                ),
+                "success": True,
+            }
         except requests.Timeout:
-            return self._fallback_results(query, error="Search request timed out.")
+            return self._fallback_results(
+                query, error="Search request timed out."
+            )
         except requests.RequestException as exc:
             return self._fallback_results(query, error=str(exc))
 
@@ -98,7 +134,13 @@ class SearchService:
         thumbnails = item.get("pagemap", {}).get("cse_thumbnail", [])
         if thumbnails:
             thumbnail = thumbnails[0].get("src", "")
-        return {"title": item.get("title", ""), "snippet": item.get("snippet", ""), "url": item.get("link", ""), "display_url": item.get("displayLink", ""), "thumbnail": thumbnail}
+        return {
+            "title": item.get("title", ""),
+            "snippet": item.get("snippet", ""),
+            "url": item.get("link", ""),
+            "display_url": item.get("displayLink", ""),
+            "thumbnail": thumbnail,
+        }
 
     def _get_cached(self, key: str) -> list | None:
         """Get cached results if not expired."""
@@ -117,10 +159,14 @@ class SearchService:
     @staticmethod
     def _cache_key(query: str, num: int) -> str:
         """Create deterministic cache key."""
-        return hashlib.sha256(f"{num}::{query.lower().strip()}".encode()).hexdigest()
+        return hashlib.sha256(
+            f"{num}::{query.lower().strip()}".encode()
+        ).hexdigest()
 
     @staticmethod
-    def _fallback_results(query: str, error: Optional[str] = None) -> dict[str, Any]:
+    def _fallback_results(
+        query: str, error: Optional[str] = None
+    ) -> dict[str, Any]:
         """Return placeholder results when API is unavailable."""
         hardcoded_news = [
             {
@@ -128,29 +174,29 @@ class SearchService:
                 "snippet": "Voters are heading to the polls in record numbers. Analysts predict this election will be historic in its voter participation.",
                 "url": f"https://www.google.com/search?q=election+{query.replace(' ', '+')}",
                 "display_url": "news.example.com",
-                "thumbnail": ""
+                "thumbnail": "",
             },
             {
                 "title": f"Key Issues Taking Center Stage in the {query.title()} Campaign Trail",
                 "snippet": "Economy, healthcare, and climate change are among the top issues motivating voters in this election cycle.",
                 "url": f"https://www.google.com/search?q=election+{query.replace(' ', '+')}",
                 "display_url": "politics.example.com",
-                "thumbnail": ""
+                "thumbnail": "",
             },
             {
-                "title": f"Understanding the Electoral Process: A Guide for First-Time Voters",
+                "title": "Understanding the Electoral Process: A Guide for First-Time Voters",
                 "snippet": "An in-depth look at how votes are counted and the steps taken to ensure election integrity and security.",
                 "url": f"https://www.google.com/search?q=election+{query.replace(' ', '+')}",
                 "display_url": "civic-education.example.com",
-                "thumbnail": ""
-            }
+                "thumbnail": "",
+            },
         ]
         if error:
             logger.error(f"Search API Error: {error}", exc_info=True)
         return {
             "results": hardcoded_news,
-            "query": query, 
-            "fallback": True, 
-            "error": error, 
+            "query": query,
+            "fallback": True,
+            "error": error,
             "success": True,
         }
