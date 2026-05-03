@@ -451,6 +451,16 @@ def create_app() -> Flask:
         """
         return _handle_timeline()
 
+    @application.route("/api/map")
+    @limiter.limit(RATE_LIMIT_DEFAULT)
+    def map_endpoint() -> tuple[Response, int]:
+        """Return map configuration or fallback embed URL.
+
+        Returns:
+            Tuple of JSON response and HTTP status code.
+        """
+        return _handle_map()
+
     # -----------------------------------------------------------------
     # Error handlers
     # -----------------------------------------------------------------
@@ -756,6 +766,69 @@ def _handle_quiz_score(session_id: str) -> tuple[Response, int]:
     return jsonify(result), 200
 
 
+FALLBACK_QUESTIONS = [
+    {
+        "question": "What is the minimum voting age in most democratic countries?",
+        "options": ["16", "18", "21", "25"],
+        "correct_answer": "18",
+        "explanation": "In the majority of democratic nations, including the USA, UK, and India, the legal voting age is 18."
+    },
+    {
+        "question": "Which of these is NOT a primary function of an election commission?",
+        "options": ["Registering voters", "Counting ballots", "Passing new laws", "Setting election dates"],
+        "correct_answer": "Passing new laws",
+        "explanation": "Election commissions are responsible for administering elections, while passing laws is the duty of the legislature."
+    },
+    {
+        "question": "In the United States, what system determines the winner of a presidential election?",
+        "options": ["Popular Vote", "Electoral College", "Parliamentary Majority", "Proportional Representation"],
+        "correct_answer": "Electoral College",
+        "explanation": "The US uses the Electoral College system, where each state has a certain number of electors based on its congressional representation."
+    },
+    {
+        "question": "In a parliamentary system like the UK or India, who usually becomes the Prime Minister?",
+        "options": ["The candidate with the most national votes", "The leader of the party with the most seats in parliament", "The oldest member of parliament", "A person appointed by the Supreme Court"],
+        "correct_answer": "The leader of the party with the most seats in parliament",
+        "explanation": "The Prime Minister is typically the leader of the party or coalition that commands a majority in the lower house of parliament."
+    },
+    {
+        "question": "What is a 'Swing State' in US elections?",
+        "options": ["A state that changes its borders", "A state where voting is optional", "A state where both major parties have similar levels of support", "A state that votes first"],
+        "correct_answer": "A state where both major parties have similar levels of support",
+        "explanation": "Swing states (or battleground states) are states where the race is close and could be won by either Democratic or Republican candidates."
+    },
+    {
+        "question": "What is the purpose of a primary election?",
+        "options": ["To elect the president", "To select a political party's candidate for an upcoming general election", "To vote on local laws", "To recall a politician"],
+        "correct_answer": "To select a political party's candidate for an upcoming general election",
+        "explanation": "Primary elections narrow down the field of candidates within a political party before the general election."
+    },
+    {
+        "question": "What does EVM stand for in the context of Indian elections?",
+        "options": ["Electoral Voting Machine", "Electronic Voting Machine", "Election Verification Mechanism", "Early Voting Mandate"],
+        "correct_answer": "Electronic Voting Machine",
+        "explanation": "India uses Electronic Voting Machines (EVMs) to record votes in state and general elections."
+    },
+    {
+        "question": "What is 'Proportional Representation'?",
+        "options": ["An electoral system where parties gain seats in proportion to the number of votes cast for them", "A system where the winner takes all seats", "A system where only property owners can vote", "A system where voting is proportional to income"],
+        "correct_answer": "An electoral system where parties gain seats in proportion to the number of votes cast for them",
+        "explanation": "In proportional representation systems, if a party wins 30% of the vote, they get roughly 30% of the seats."
+    },
+    {
+        "question": "What is a referendum?",
+        "options": ["An election for local mayors", "A direct vote by the electorate on a particular proposal or issue", "A survey conducted by news agencies", "The process of counting votes"],
+        "correct_answer": "A direct vote by the electorate on a particular proposal or issue",
+        "explanation": "A referendum allows citizens to vote directly on a specific policy, law, or political issue, rather than for a candidate."
+    },
+    {
+        "question": "What is voter turnout?",
+        "options": ["The number of people who register to vote", "The percentage of eligible voters who cast a ballot in an election", "The process of verifying voter identity", "The number of invalid ballots"],
+        "correct_answer": "The percentage of eligible voters who cast a ballot in an election",
+        "explanation": "Voter turnout measures the participation rate of eligible voters in a given election."
+    }
+]
+
 def _handle_quiz_question() -> tuple[Response, int]:
     """Generate a quiz question using Gemini.
 
@@ -768,9 +841,48 @@ def _handle_quiz_question() -> tuple[Response, int]:
         result = gemini.get_quiz_question()
         return jsonify({**result, "success": True}), 200
     except Exception as exc:
-        logger.exception("Failed to get quiz question: %s", exc)
-        return jsonify({"error": "Failed to generate question.", "success": False}), 500
+        logger.error(f"{type(exc).__name__}: {str(exc)}", exc_info=True)
+        import random
+        question = random.choice(FALLBACK_QUESTIONS)
+        return jsonify({**question, "success": True, "fallback": True}), 200
 
+FALLBACK_TIMELINES = {
+    "india": {
+        "country": "India",
+        "timeline": [
+            {"phase": "Announcement", "description": "Election Commission of India announces the schedule and the Model Code of Conduct comes into effect.", "approximate_timeframe": "45-60 days before voting"},
+            {"phase": "Nominations", "description": "Candidates file their nomination papers, which are scrutinised.", "approximate_timeframe": "1 week after announcement"},
+            {"phase": "Campaigning", "description": "Political parties campaign across constituencies.", "approximate_timeframe": "2-3 weeks"},
+            {"phase": "Polling", "description": "Voting takes place in multiple phases across the country.", "approximate_timeframe": "Spread over several weeks"},
+            {"phase": "Counting & Results", "description": "Votes are counted and results are officially declared.", "approximate_timeframe": "1 day, usually a few days after final polling phase"}
+        ],
+        "summary": "India's general elections are the largest democratic exercise in the world, managed independently by the Election Commission of India over several phases."
+    },
+    "usa": {
+        "country": "USA",
+        "timeline": [
+            {"phase": "Primaries & Caucuses", "description": "States hold primary elections or caucuses to choose party delegates.", "approximate_timeframe": "January - June of election year"},
+            {"phase": "National Conventions", "description": "Parties officially nominate their Presidential and Vice-Presidential candidates.", "approximate_timeframe": "July - August"},
+            {"phase": "General Election Campaign", "description": "Candidates debate and campaign nationally.", "approximate_timeframe": "September - October"},
+            {"phase": "Election Day", "description": "Voters cast ballots. The Tuesday next after the first Monday in November.", "approximate_timeframe": "Early November"},
+            {"phase": "Electoral College Vote", "description": "Electors officially cast their votes for President.", "approximate_timeframe": "Mid-December"},
+            {"phase": "Inauguration", "description": "The newly elected President takes office.", "approximate_timeframe": "January 20th"}
+        ],
+        "summary": "The US Presidential election is a lengthy process involving state primaries, national conventions, and the Electoral College system."
+    },
+    "uk": {
+        "country": "UK",
+        "timeline": [
+            {"phase": "Dissolution of Parliament", "description": "Parliament is dissolved ahead of the election.", "approximate_timeframe": "25 working days before election"},
+            {"phase": "Nominations", "description": "Candidates must submit their nomination papers.", "approximate_timeframe": "19 working days before election"},
+            {"phase": "Campaign Period", "description": "Parties release manifestos and campaign.", "approximate_timeframe": "3-4 weeks"},
+            {"phase": "Polling Day", "description": "Voters cast their ballots, typically on a Thursday.", "approximate_timeframe": "Election Day"},
+            {"phase": "Counting & Declaration", "description": "Votes are counted overnight and winning Members of Parliament (MPs) are announced.", "approximate_timeframe": "Night of Election Day / Following Morning"},
+            {"phase": "Formation of Government", "description": "The leader of the party with a majority is invited by the Monarch to form a government.", "approximate_timeframe": "Immediately following results"}
+        ],
+        "summary": "UK general elections determine the Members of Parliament for the House of Commons, with the majority party leader typically becoming Prime Minister."
+    }
+}
 
 def _handle_timeline() -> tuple[Response, int]:
     """Retrieve an election timeline using Gemini.
@@ -787,8 +899,38 @@ def _handle_timeline() -> tuple[Response, int]:
         result = gemini.get_timeline(country)
         return jsonify({**result, "success": True}), 200
     except Exception as exc:
-        logger.exception("Failed to get timeline: %s", exc)
-        return jsonify({"error": "Failed to generate timeline.", "success": False}), 500
+        logger.error(f"{type(exc).__name__}: {str(exc)}", exc_info=True)
+        key = country.lower()
+        if key not in FALLBACK_TIMELINES:
+            key = "india"
+        return jsonify({**FALLBACK_TIMELINES[key], "success": True, "fallback": True}), 200
+
+def _handle_map() -> tuple[Response, int]:
+    """Handle map endpoint request with fallback.
+
+    Returns:
+        Tuple of JSON response and HTTP status code.
+    """
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    
+    if not api_key:
+        logger.warning("GOOGLE_MAPS_API_KEY is not set. Using OpenStreetMap fallback.")
+        return jsonify({
+            "provider": "openstreetmap",
+            "embed_url": "https://www.openstreetmap.org/export/embed.html",
+            "success": True,
+            "fallback": True
+        }), 200
+        
+    query = sanitise_input(request.args.get("q", "polling stations near me"))
+    import urllib.parse
+    encoded_query = urllib.parse.quote(query)
+    embed_url = f"https://www.google.com/maps/embed/v1/place?key={api_key}&q={encoded_query}"
+    return jsonify({
+        "provider": "google",
+        "embed_url": embed_url,
+        "success": True
+    }), 200
 
 
 # ---------------------------------------------------------------------------

@@ -133,21 +133,21 @@ class GeminiElectionAssistant:
         Args:
             api_key: Google API key. Falls back to the GOOGLE_API_KEY
                 environment variable if not provided.
-
-        Raises:
-            ValueError: If no API key is available.
         """
-        self.api_key = api_key or os.environ.get(ENV_GOOGLE_API_KEY)
+        self.api_key = api_key or os.environ.get(ENV_GOOGLE_API_KEY) or os.environ.get("GOOGLE_API_KEY", "")
         if not self.api_key:
-            logger.error("GOOGLE_API_KEY is not set.")
-            raise ValueError("GOOGLE_API_KEY environment variable is missing.")
+            logger.warning("GOOGLE_API_KEY is not set. Gemini API calls will use fallbacks.")
 
         genai.configure(api_key=self.api_key)
-        self.model_name: str = GEMINI_MODEL_NAME
+        self.model_name: str = "gemini-1.5-flash"
         self.generation_config = self._build_generation_config()
         self.safety_settings = self._build_safety_settings()
         self.model = self._create_model()
-        self.chat_session = self.model.start_chat(history=[])
+        try:
+            self.chat_session = self.model.start_chat(history=[])
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {str(e)}", exc_info=True)
+            self.chat_session = None
         self.history_limit: int = GEMINI_HISTORY_LIMIT
 
     # ------------------------------------------------------------------
@@ -261,10 +261,20 @@ class GeminiElectionAssistant:
         """
         prompt = self._build_chat_prompt(user_message)
         logger.info("Sending chat message: %s", user_message[:100])
-        response = self.chat_session.send_message(prompt)
-        self._trim_history()
-        logger.debug("Received chat response: %s", response.text[:200])
-        return self._parse_json_response(response.text)
+        try:
+            if not self.api_key or not self.chat_session:
+                raise ValueError("Gemini API is not configured or chat session failed to initialize.")
+            response = self.chat_session.send_message(prompt)
+            self._trim_history()
+            logger.debug("Received chat response: %s", response.text[:200])
+            return self._parse_json_response(response.text)
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {str(e)}", exc_info=True)
+            return {
+                "response": "I'm currently operating in offline mode. I can answer basic questions about elections, but my full knowledge base is temporarily unavailable.",
+                "topic": "General",
+                "suggested_questions": ["What is a democracy?", "How do I register to vote?"]
+            }
 
     @retry_with_exponential_backoff(max_retries=GEMINI_MAX_RETRIES)
     def get_timeline(self, country: str) -> Dict[str, Any]:
@@ -285,9 +295,15 @@ class GeminiElectionAssistant:
             "- 'summary': A brief markdown summary."
         )
         logger.info("Requesting timeline for: %s", country)
-        response = self.model.generate_content(prompt)
-        logger.debug("Timeline response: %s", response.text[:200])
-        return self._parse_json_response(response.text)
+        try:
+            if not self.api_key:
+                raise ValueError("Gemini API is not configured.")
+            response = self.model.generate_content(prompt)
+            logger.debug("Timeline response: %s", response.text[:200])
+            return self._parse_json_response(response.text)
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {str(e)}", exc_info=True)
+            raise
 
     @retry_with_exponential_backoff(max_retries=GEMINI_MAX_RETRIES)
     def get_quiz_question(self) -> Dict[str, Any]:
@@ -307,9 +323,15 @@ class GeminiElectionAssistant:
             "- 'explanation': A brief markdown explanation."
         )
         logger.info("Requesting quiz question")
-        response = self.model.generate_content(prompt)
-        logger.debug("Quiz response: %s", response.text[:200])
-        return self._parse_json_response(response.text)
+        try:
+            if not self.api_key:
+                raise ValueError("Gemini API is not configured.")
+            response = self.model.generate_content(prompt)
+            logger.debug("Quiz response: %s", response.text[:200])
+            return self._parse_json_response(response.text)
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {str(e)}", exc_info=True)
+            raise
 
     @retry_with_exponential_backoff(max_retries=GEMINI_MAX_RETRIES)
     def explain_term(self, term: str) -> Dict[str, Any]:
@@ -330,6 +352,12 @@ class GeminiElectionAssistant:
             "- 'example': An example from a specific country's elections."
         )
         logger.info("Requesting explanation for: %s", term)
-        response = self.model.generate_content(prompt)
-        logger.debug("Explanation response: %s", response.text[:200])
-        return self._parse_json_response(response.text)
+        try:
+            if not self.api_key:
+                raise ValueError("Gemini API is not configured.")
+            response = self.model.generate_content(prompt)
+            logger.debug("Explanation response: %s", response.text[:200])
+            return self._parse_json_response(response.text)
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {str(e)}")
+            raise
