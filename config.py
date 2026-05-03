@@ -1,0 +1,163 @@
+"""
+Application configuration constants for the Election Education Assistant.
+
+Centralises all magic strings, numbers, and environment variable keys.
+Import from this module instead of using hardcoded values.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from typing import Final
+
+
+# ---------------------------------------------------------------------------
+# Environment variable keys (single source of truth)
+# ---------------------------------------------------------------------------
+ENV_GOOGLE_API_KEY: Final[str] = "GOOGLE_API_KEY"
+ENV_GOOGLE_CLOUD_PROJECT: Final[str] = "GOOGLE_CLOUD_PROJECT"
+ENV_VERTEX_LOCATION: Final[str] = "VERTEX_LOCATION"
+ENV_TRANSLATE_API_KEY: Final[str] = "GOOGLE_TRANSLATE_API_KEY"
+ENV_TTS_API_KEY: Final[str] = "GOOGLE_TTS_API_KEY"
+ENV_SEARCH_API_KEY: Final[str] = "GOOGLE_SEARCH_API_KEY"
+ENV_SEARCH_ENGINE_ID: Final[str] = "GOOGLE_SEARCH_ENGINE_ID"
+ENV_GA_MEASUREMENT_ID: Final[str] = "GA_MEASUREMENT_ID"
+ENV_MAPS_API_KEY: Final[str] = "GOOGLE_MAPS_API_KEY"
+ENV_FIREBASE_CREDENTIALS: Final[str] = "FIREBASE_CREDENTIALS_PATH"
+ENV_FLASK_SECRET_KEY: Final[str] = "FLASK_SECRET_KEY"
+ENV_ALLOWED_ORIGINS: Final[str] = "ALLOWED_ORIGINS"
+ENV_PORT: Final[str] = "PORT"
+ENV_SEARCH_TIMEOUT: Final[str] = "SEARCH_TIMEOUT_SECONDS"
+
+# ---------------------------------------------------------------------------
+# Application version
+# ---------------------------------------------------------------------------
+APP_VERSION: Final[str] = "2.1.0"
+
+# ---------------------------------------------------------------------------
+# Flask / HTTP
+# ---------------------------------------------------------------------------
+DEFAULT_PORT: Final[int] = 8080
+MAX_CONTENT_LENGTH: Final[int] = 10 * 1024  # 10 KB payload limit
+RATE_LIMIT_DEFAULT: Final[str] = "200 per day"
+RATE_LIMIT_HOURLY: Final[str] = "50 per hour"
+RATE_LIMIT_CHAT: Final[str] = "10 per minute"
+RATE_LIMIT_TRANSLATE: Final[str] = "60 per minute"
+RATE_LIMIT_TTS: Final[str] = "20 per minute"
+RATE_LIMIT_NEWS: Final[str] = "30 per minute"
+RATE_LIMIT_SESSION: Final[str] = "10 per minute"
+RATE_LIMIT_QUIZ: Final[str] = "30 per minute"
+RATE_LIMIT_TOPICS: Final[str] = "60 per minute"
+RATE_LIMIT_LANGUAGES: Final[str] = "120 per minute"
+RATE_LIMIT_DETECT: Final[str] = "60 per minute"
+
+# ---------------------------------------------------------------------------
+# Gemini AI
+# ---------------------------------------------------------------------------
+GEMINI_MODEL_NAME: Final[str] = "gemini-1.5-pro"
+GEMINI_TEMPERATURE: Final[float] = 0.2
+GEMINI_RESPONSE_MIME: Final[str] = "application/json"
+GEMINI_HISTORY_LIMIT: Final[int] = 10
+GEMINI_MAX_RETRIES: Final[int] = 3
+GEMINI_RETRY_DELAY: Final[float] = 1.0
+GEMINI_RETRY_BASE: Final[float] = 2.0
+
+# ---------------------------------------------------------------------------
+# Chat validation
+# ---------------------------------------------------------------------------
+MAX_MESSAGE_LENGTH: Final[int] = 2000
+MAX_TTS_TEXT_LENGTH: Final[int] = 5000
+
+# ---------------------------------------------------------------------------
+# Search service
+# ---------------------------------------------------------------------------
+SEARCH_MAX_RESULTS: Final[int] = 5
+SEARCH_MAX_RESULTS_UPPER: Final[int] = 10
+SEARCH_CACHE_TTL_SECONDS: Final[int] = 300  # 5 minutes
+SEARCH_BASE_URL: Final[str] = "https://www.googleapis.com/customsearch/v1"
+SEARCH_TIMEOUT_DEFAULT: Final[int] = 10
+
+# ---------------------------------------------------------------------------
+# TTS service
+# ---------------------------------------------------------------------------
+TTS_MAX_CACHE_SIZE: Final[int] = 100
+
+# ---------------------------------------------------------------------------
+# Vertex AI
+# ---------------------------------------------------------------------------
+VERTEX_MODEL_NAME: Final[str] = "gemini-1.5-pro"
+VERTEX_DEFAULT_LOCATION: Final[str] = "us-central1"
+
+# ---------------------------------------------------------------------------
+# GA default placeholder
+# ---------------------------------------------------------------------------
+GA_DEFAULT_MEASUREMENT_ID: Final[str] = "G-XXXXXXXXXX"
+
+# ---------------------------------------------------------------------------
+# Pagination
+# ---------------------------------------------------------------------------
+PAGINATION_DEFAULT_PAGE: Final[int] = 1
+PAGINATION_DEFAULT_PER_PAGE: Final[int] = 20
+PAGINATION_MAX_PER_PAGE: Final[int] = 100
+
+# ---------------------------------------------------------------------------
+# Security — Content-Security-Policy directives
+# ---------------------------------------------------------------------------
+CSP_DIRECTIVES: Final[dict[str, str]] = {
+    "default-src": "'self'",
+    "script-src": (
+        "'self' 'unsafe-inline' "
+        "https://www.googletagmanager.com "
+        "https://www.google-analytics.com "
+        "https://maps.googleapis.com"
+    ),
+    "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src": "'self' https://fonts.gstatic.com",
+    "img-src": "'self' data: https: blob:",
+    "connect-src": (
+        "'self' "
+        "https://www.google-analytics.com "
+        "https://analytics.google.com "
+        "https://region1.google-analytics.com"
+    ),
+    "frame-src": (
+        "'self' "
+        "https://www.google.com "
+        "https://maps.google.com"
+    ),
+    "media-src": "'self' blob: data:",
+}
+
+
+# ---------------------------------------------------------------------------
+# Dataclass for runtime-resolved config (reads env vars at construction)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class AppConfig:
+    """Immutable runtime configuration resolved from environment variables."""
+
+    google_api_key: str = field(
+        default_factory=lambda: os.environ.get(ENV_GOOGLE_API_KEY, "")
+    )
+    google_cloud_project: str = field(
+        default_factory=lambda: os.environ.get(ENV_GOOGLE_CLOUD_PROJECT, "")
+    )
+    vertex_location: str = field(
+        default_factory=lambda: os.environ.get(ENV_VERTEX_LOCATION, VERTEX_DEFAULT_LOCATION)
+    )
+    flask_secret_key: str = field(
+        default_factory=lambda: os.environ.get(ENV_FLASK_SECRET_KEY, os.urandom(32).hex())
+    )
+    ga_measurement_id: str = field(
+        default_factory=lambda: os.environ.get(ENV_GA_MEASUREMENT_ID, GA_DEFAULT_MEASUREMENT_ID)
+    )
+    google_maps_api_key: str = field(
+        default_factory=lambda: os.environ.get(ENV_MAPS_API_KEY, "")
+    )
+    port: int = field(
+        default_factory=lambda: int(os.environ.get(ENV_PORT, str(DEFAULT_PORT)))
+    )
+    allowed_origins: str = field(
+        default_factory=lambda: os.environ.get(ENV_ALLOWED_ORIGINS, "*")
+    )

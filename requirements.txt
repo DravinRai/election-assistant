@@ -1,0 +1,33 @@
+# Flask & Web
+Flask==3.1.0
+flask-cors==5.0.1
+flask-talisman==1.1.0
+flask-limiter==3.12
+flask-compress==1.17
+gunicorn==23.0.0
+
+# Google Cloud / AI
+google-generativeai==0.8.5
+google-cloud-aiplatform==1.78.0
+google-cloud-logging==3.11.4
+
+# Google Translate
+google-cloud-translate==3.18.0
+
+# Google Text-to-Speech
+google-cloud-texttospeech==2.21.1
+
+# Firebase / Firestore
+firebase-admin==6.6.0
+
+# Security
+bleach==6.2.0
+
+# Utilities
+python-dotenv==1.1.0
+requests==2.32.3
+
+# Testing
+pytest==8.3.4
+pytest-cov==6.1.1
+pytest-asyncio==0.26.0

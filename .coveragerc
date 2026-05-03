@@ -1,0 +1,19 @@
+[run]
+source = .
+omit =
+    tests/*
+    .venv/*
+    venv/*
+    htmlcov/*
+    __pycache__/*
+
+[report]
+fail_under = 80
+show_missing = true
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__.
+    raise NotImplementedError
+    pass
+    except ImportError

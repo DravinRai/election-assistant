@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Election Process Education Assistant — Learn about voter registration, election security, the Electoral College, and more with AI-powered, non-partisan guidance.">
+    <meta name="theme-color" content="#0f172a">
+    <title>Election Education Assistant — Learn How Democracy Works</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Google Analytics 4 -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', '{{ ga_measurement_id }}', {
+            page_title: 'Election Education Assistant',
+            custom_map: {
+                'dimension1': 'chat_topic',
+                'dimension2': 'quiz_score'
+            }
+        });
+    </script>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Skip-link for screen readers (WCAG 2.1 AA) -->
+    <a href="#main-content" class="skip-link" id="skip-nav">Skip to main content</a>
+
+    <!-- ======= Header ======= -->
+    <header class="site-header" role="banner">
+        <div class="header-inner">
+            <div class="logo" aria-label="Election Education Assistant">
+                <span class="logo-icon" aria-hidden="true">🏛️</span>
+                <h1 class="logo-text">Election<span class="logo-accent">Edu</span></h1>
+            </div>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <!-- Language selector -->
+                <div class="lang-selector" id="lang-selector">
+                    <label for="lang-select" class="sr-only">Select language</label>
+                    <select id="lang-select" class="lang-select" aria-label="Select response language">
+                        <option value="en" selected>🌐 English</option>
+                        <option value="hi">🇮🇳 हिन्दी</option>
+                        <option value="ta">🇮🇳 தமிழ்</option>
+                        <option value="te">🇮🇳 తెలుగు</option>
+                        <option value="bn">🇮🇳 বাংলা</option>
+                        <option value="mr">🇮🇳 मराठी</option>
+                        <option value="es">🇪🇸 Español</option>
+                        <option value="fr">🇫🇷 Français</option>
+                    </select>
+                </div>
+
+                <!-- Tab nav -->
+                <div class="tab-nav" role="tablist" aria-label="Content tabs">
+                    <button class="tab-btn active" role="tab" id="tab-chat" aria-selected="true" aria-controls="panel-chat" data-tab="chat">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                        Chat
+                    </button>
+                    <button class="tab-btn" role="tab" id="tab-news" aria-selected="false" aria-controls="panel-news" data-tab="news">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2"/></svg>
+                        News
+                    </button>
+                    <button class="tab-btn" role="tab" id="tab-map" aria-selected="false" aria-controls="panel-map" data-tab="map">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        Map
+                    </button>
+                    <button class="tab-btn" role="tab" id="tab-quiz" aria-selected="false" aria-controls="panel-quiz" data-tab="quiz">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+                        Quiz
+                    </button>
+                    <button class="tab-btn" role="tab" id="tab-timeline" aria-selected="false" aria-controls="panel-timeline" data-tab="timeline">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Timeline
+                    </button>
+                </div>
+
+                <button class="btn-topic-drawer" id="btn-topics" aria-expanded="false" aria-controls="topic-drawer">
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    Topics
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- ======= Topic Drawer ======= -->
+    <aside id="topic-drawer" class="topic-drawer" role="complementary" aria-label="Quick topic shortcuts" hidden>
+        <div class="drawer-inner">
+            <h2 class="drawer-heading">Explore Topics</h2>
+            <ul class="topic-list" id="topic-list" role="list">
+                <li><button class="topic-chip" data-query="How do I register to vote?" id="topic-registration">📋 Voter Registration</button></li>
+                <li><button class="topic-chip" data-query="What are the different voting methods available?" id="topic-methods">🗳️ Voting Methods</button></li>
+                <li><button class="topic-chip" data-query="How does the Electoral College work?" id="topic-electoral">🏫 Electoral College</button></li>
+                <li><button class="topic-chip" data-query="What is election security and how is it ensured?" id="topic-security">🔒 Election Security</button></li>
+                <li><button class="topic-chip" data-query="Explain campaign finance rules" id="topic-finance">💰 Campaign Finance</button></li>
+                <li><button class="topic-chip" data-query="What is redistricting and gerrymandering?" id="topic-redistricting">🗺️ Redistricting</button></li>
+                <li><button class="topic-chip" data-query="How can I become a poll worker?" id="topic-pollworker">🙋 Poll Workers</button></li>
+                <li><button class="topic-chip" data-query="What are ballot measures and propositions?" id="topic-ballots">📜 Ballot Measures</button></li>
+            </ul>
+        </div>
+    </aside>
+
+    <!-- ======= Main Content ======= -->
+    <main id="main-content" class="main-content">
+
+        <!-- ===== Chat Panel ===== -->
+        <section class="tab-panel active" id="panel-chat" role="tabpanel" aria-labelledby="tab-chat">
+            <div class="chat-container" aria-label="Chat conversation" id="chat-section">
+                <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-relevant="additions">
+                    <!-- Welcome message -->
+                    <div class="message assistant-message" id="welcome-msg">
+                        <div class="message-avatar" aria-hidden="true">🏛️</div>
+                        <div class="message-body">
+                            <div class="message-meta">
+                                <span class="message-author">ElectionEdu</span>
+                                <span class="message-badge">AI Assistant</span>
+                            </div>
+                            <div class="message-content">
+                                <p>Welcome! I'm your <strong>Election Education Assistant</strong>. I provide non-partisan, factual information about:</p>
+                                <ul>
+                                    <li>🗳️ How to register &amp; vote</li>
+                                    <li>🏫 The Electoral College</li>
+                                    <li>🔒 Election security</li>
+                                    <li>💰 Campaign finance</li>
+                                    <li>🗺️ Redistricting &amp; gerrymandering</li>
+                                </ul>
+                                <p>Ask me anything about election processes! You can also use the <strong>🌐 language selector</strong> above to read responses in your preferred language, or click <strong>🔊 Listen</strong> to hear responses aloud.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Typing indicator (hidden by default) -->
+                <div class="typing-indicator" id="typing-indicator" aria-label="Assistant is typing" hidden>
+                    <div class="message-avatar" aria-hidden="true">🏛️</div>
+                    <div class="typing-dots"><span></span><span></span><span></span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== News Panel ===== -->
+        <section class="tab-panel" id="panel-news" role="tabpanel" aria-labelledby="tab-news" hidden>
+            <div class="news-container" id="news-container">
+                <div class="news-header">
+                    <h2 class="news-title">📰 Latest Election News</h2>
+                    <div class="news-search-bar">
+                        <label for="news-query" class="sr-only">Search election news</label>
+                        <input type="text" id="news-query" class="news-input" placeholder="Search election news (e.g., 2024 US election results)…" maxlength="200">
+                        <button id="btn-news-search" class="btn-news-search" aria-label="Search news">
+                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="news-results" id="news-results">
+                    <div class="news-placeholder">
+                        <svg aria-hidden="true" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2"/></svg>
+                        <p>Search for election-related news topics above</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== Map Panel ===== -->
+        <section class="tab-panel" id="panel-map" role="tabpanel" aria-labelledby="tab-map" hidden>
+            <div class="map-container" id="map-container">
+                <div class="map-header">
+                    <h2 class="map-title">📍 Find My Polling Station</h2>
+                    <p class="map-subtitle">Locate your nearest polling station using the map below</p>
+                </div>
+                <div class="map-search-bar">
+                    <label for="map-address" class="sr-only">Enter your address to find polling stations</label>
+                    <input type="text" id="map-address" class="map-input" placeholder="Enter your address or ZIP code…" maxlength="200">
+                    <button id="btn-find-polling" class="btn-find-polling" aria-label="Find my polling station">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        Find Station
+                    </button>
+                </div>
+                <div class="map-embed-wrapper" id="map-embed-wrapper">
+                    {% if google_maps_api_key %}
+                    <iframe
+                        id="map-iframe"
+                        class="map-iframe"
+                        loading="lazy"
+                        allowfullscreen
+                        referrerpolicy="no-referrer-when-downgrade"
+                        src="https://www.google.com/maps/embed/v1/place?key={{ google_maps_api_key }}&q=polling+stations+near+me&zoom=12"
+                        title="Google Maps — Polling Station Locator"
+                        aria-label="Map showing polling stations near you">
+                    </iframe>
+                    {% else %}
+                    <div class="map-placeholder">
+                        <svg aria-hidden="true" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        <p>Google Maps API key not configured.</p>
+                        <p class="map-placeholder-sub">Set <code>GOOGLE_MAPS_API_KEY</code> to enable the polling station locator.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== Quiz Panel ===== -->
+        <section class="tab-panel" id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz" hidden>
+            <div class="quiz-container" id="quiz-container">
+                <div class="quiz-header">
+                    <h2 class="quiz-title">🏆 Election Knowledge Quiz</h2>
+                    <p class="quiz-subtitle">Test your understanding of democratic processes</p>
+                </div>
+                <div id="quiz-content" class="quiz-content">
+                    <div class="quiz-start">
+                        <button id="btn-start-quiz" class="btn-primary">Start New Quiz</button>
+                    </div>
+                </div>
+                <div id="quiz-score-board" class="quiz-score-board" hidden>
+                    <p>Last Score: <span id="last-score">0</span>/<span id="last-total">0</span></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== Timeline Panel ===== -->
+        <section class="tab-panel" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden>
+            <div class="timeline-container" id="timeline-container">
+                <div class="timeline-header">
+                    <h2 class="timeline-title">⏳ Election Timelines</h2>
+                    <div class="timeline-search-bar">
+                        <label for="timeline-country" class="sr-only">Enter country for timeline</label>
+                        <input type="text" id="timeline-country" class="timeline-input" placeholder="Enter country (e.g., USA, India, UK)…" maxlength="100">
+                        <button id="btn-timeline-search" class="btn-timeline-search" aria-label="Get timeline">
+                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="timeline-content" class="timeline-content">
+                    <div class="timeline-placeholder">
+                        <p>Search for a country to see its election milestones</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Input area (always visible at bottom) -->
+        <footer class="chat-input-area" id="chat-input-area">
+            <form class="chat-form" id="chat-form" aria-label="Send a message">
+                <label for="user-input" class="sr-only">Type your question about elections</label>
+                <textarea
+                    id="user-input"
+                    class="chat-input"
+                    placeholder="Ask about elections, voting, or civic participation…"
+                    rows="1"
+                    maxlength="2000"
+                    aria-label="Type your question about elections"
+                    required
+                ></textarea>
+                <button type="submit" class="btn-send" id="btn-send" aria-label="Send message">
+                    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+            </form>
+            <p class="input-hint" id="input-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for new line · <span id="char-count">0</span>/2000</p>
+        </footer>
+    </main>
+
+    <!-- ======= Live region for screen-reader announcements ======= -->
+    <div id="sr-announcer" class="sr-only" aria-live="assertive" aria-atomic="true" role="status"></div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
