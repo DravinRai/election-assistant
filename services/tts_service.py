@@ -7,12 +7,10 @@ Uses Google Cloud TTS API to:
     - Cache generated audio to avoid redundant API calls
     - Support multiple languages matching the Translate service
 
-Author: Ankit Rai
-Version: 2.1.0
-Usage example:
-    from services.tts_service import TTSService
-    svc = TTSService.get_instance()
-    audio = svc.synthesize("Hello")
+Example:
+    >>> from services.tts_service import TTSService
+    >>> svc = TTSService.get_instance()
+    >>> audio = svc.synthesize("Hello")
 """
 
 from __future__ import annotations
@@ -21,14 +19,19 @@ import base64
 import hashlib
 import logging
 import os
-from typing import Any
+from typing import Any, Tuple
 
-from config import ENV_TTS_API_KEY, MAX_TTS_TEXT_LENGTH, TTS_MAX_CACHE_SIZE
+from config import (
+    ENV_TTS_API_KEY, 
+    MAX_TTS_TEXT_LENGTH, 
+    TTS_MAX_CACHE_SIZE,
+    DEFAULT_LANGUAGE,
+)
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # WaveNet voice map: language code → (language_code, voice_name, ssml_gender)
-VOICE_MAP: dict[str, tuple[str, str, str]] = {
+VOICE_MAP: dict[str, Tuple[str, str, str]] = {
     "en": ("en-US", "en-US-Wavenet-D", "MALE"),
     "hi": ("hi-IN", "hi-IN-Wavenet-A", "FEMALE"),
     "ta": ("ta-IN", "ta-IN-Wavenet-A", "FEMALE"),
@@ -43,12 +46,12 @@ VOICE_MAP: dict[str, tuple[str, str, str]] = {
 try:
     from google.cloud import texttospeech
 
-    _TTS_AVAILABLE = True
+    _TTS_AVAILABLE: bool = True
 except ImportError:
-    _TTS_AVAILABLE = False
+    _TTS_AVAILABLE: bool = False
     logger.info("Google Cloud TTS SDK not installed — TTS disabled.")
 
-__all__ = ["TTSService"]
+__all__: list[str] = ["TTSService", "VOICE_MAP"]
 
 
 class TTSService:
@@ -60,14 +63,37 @@ class TTSService:
 
     Attributes:
         _client: The TTS API client (or None).
+        _api_key: The API key for TTS.
         _cache: In-memory audio cache (hash → base64 audio).
         _max_cache_size: Maximum cache entries before eviction.
+        _instance: Singleton instance.
     """
 
     _instance: TTSService | None = None
+    _client: Any
+    _api_key: str
+    _cache: dict[str, str]
+    _max_cache_size: int
 
     def __init__(self) -> None:
-        """Initialise the TTSService with optional TTS client."""
+        """Initialise the TTSService with optional TTS client.
+        
+        Detailed description:
+            Reads API keys from the environment variables, attempts to init
+            the texttospeech client, and sets up the internal cache.
+            
+        Args:
+            None
+            
+        Returns:
+            None
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc = TTSService()
+        """
         self._client = None
         self._api_key = os.environ.get(ENV_TTS_API_KEY, "")
 
@@ -76,26 +102,52 @@ class TTSService:
         else:
             logger.info("TTSService running in disabled mode.")
 
-        self._cache: dict[str, str] = {}
-        self._max_cache_size: int = TTS_MAX_CACHE_SIZE
+        self._cache = {}
+        self._max_cache_size = TTS_MAX_CACHE_SIZE
 
     def _init_client(self) -> None:
         """Attempt to initialise the TTS client.
 
-        Catches all exceptions for graceful degradation.
+        Detailed description:
+            Initialises the Google Cloud TTS client object. Catches exceptions
+            gracefully for fallback modes.
+            
+        Args:
+            None
+            
+        Returns:
+            None
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc._init_client()
         """
         try:
             self._client = texttospeech.TextToSpeechClient()
             logger.info("TTSService initialised successfully.")
-        except Exception:
-            logger.exception("Failed to initialise TTS client.")
+        except (ValueError, RuntimeError) as exc:
+            logger.error("Failed to initialise TTS client: %s", exc)
 
     @classmethod
     def get_instance(cls) -> TTSService:
         """Return the singleton TTSService instance.
 
+        Detailed description:
+            Provides a singleton access pattern for the TTS service.
+            
+        Args:
+            None
+            
         Returns:
             The shared TTSService instance.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc = TTSService.get_instance()
         """
         if cls._instance is None:
             cls._instance = cls()
@@ -108,11 +160,15 @@ class TTSService:
     def synthesize(
         self,
         text: str,
-        language: str = "en",
+        language: str = DEFAULT_LANGUAGE,
         speaking_rate: float = 1.0,
     ) -> dict[str, Any]:
         """Synthesize speech from text.
 
+        Detailed description:
+            Generates MP3 audio for the given text. Handles truncation, 
+            cache checks, and API calls.
+            
         Args:
             text: The text to convert to speech (max 5000 characters).
             language: ISO 639-1 language code.
@@ -120,13 +176,19 @@ class TTSService:
 
         Returns:
             Dict with 'audio_base64', 'content_type', and 'success' fields.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> audio = svc.synthesize("Hello world")
         """
         if not text or not text.strip():
             return {"error": "Text is required.", "success": False}
 
         text = self._truncate_text(text)
 
-        cached = self._check_cache(text, language, speaking_rate)
+        cached: dict[str, Any] | None = self._check_cache(text, language, speaking_rate)
         if cached:
             return cached
 
@@ -141,10 +203,23 @@ class TTSService:
     def get_available_voices(self) -> dict[str, Any]:
         """Return the map of supported language voices.
 
+        Detailed description:
+            Transforms the statically defined VOICE_MAP into a JSON-serialisable
+            dictionary indicating available voices.
+            
+        Args:
+            None
+            
         Returns:
             Dict with 'voices' mapping and 'success' flag.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> voices = svc.get_available_voices()
         """
-        voices = {}
+        voices: dict[str, Any] = {}
         for lang, (code, name, gender) in VOICE_MAP.items():
             voices[lang] = {
                 "language_code": code,
@@ -161,11 +236,21 @@ class TTSService:
     def _truncate_text(text: str) -> str:
         """Truncate text to the TTS API character limit.
 
+        Detailed description:
+            Limits the input string length to avoid breaching API payload 
+            constraints.
+            
         Args:
             text: The input text.
 
         Returns:
             Text truncated to MAX_TTS_TEXT_LENGTH if necessary.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> text = TTSService._truncate_text("A" * 6000)
         """
         if len(text) > MAX_TTS_TEXT_LENGTH:
             logger.warning(
@@ -179,6 +264,9 @@ class TTSService:
     ) -> dict[str, Any] | None:
         """Check the audio cache for a hit.
 
+        Detailed description:
+            Calculates the key hash and retrieves base64 audio data if present.
+            
         Args:
             text: The text to synthesize.
             language: Target language code.
@@ -186,8 +274,14 @@ class TTSService:
 
         Returns:
             Cached audio response if found, else None.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> cached = svc._check_cache("Hi", "en", 1.0)
         """
-        cache_key = self._cache_key(text, language, rate)
+        cache_key: str = self._cache_key(text, language, rate)
         if cache_key in self._cache:
             logger.debug("TTS cache hit for key %s", cache_key[:12])
             return {
@@ -203,6 +297,10 @@ class TTSService:
     ) -> dict[str, Any]:
         """Execute the TTS API call.
 
+        Detailed description:
+            Configures the VoiceSelectionParams, executes synthesize_speech, 
+            encodes the resulting binary audio to base64, and caches it.
+            
         Args:
             text: The text to synthesize.
             language: Target language code.
@@ -210,24 +308,30 @@ class TTSService:
 
         Returns:
             Synthesis result with base64 audio or error.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> res = svc._perform_synthesis("Hi", "en", 1.0)
         """
         try:
-            voice_cfg = VOICE_MAP.get(language, VOICE_MAP["en"])
-            synthesis_input = texttospeech.SynthesisInput(text=text)
-            voice = self._build_voice_params(voice_cfg)
-            audio_config = texttospeech.AudioConfig(
+            voice_cfg: Tuple[str, str, str] = VOICE_MAP.get(language, VOICE_MAP["en"])
+            synthesis_input: Any = texttospeech.SynthesisInput(text=text)
+            voice: Any = self._build_voice_params(voice_cfg)
+            audio_config: Any = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.MP3,
                 speaking_rate=rate,
             )
 
-            response = self._client.synthesize_speech(
+            response: Any = self._client.synthesize_speech(
                 input=synthesis_input, voice=voice, audio_config=audio_config
             )
-            audio_b64 = base64.b64encode(response.audio_content).decode(
+            audio_b64: str = base64.b64encode(response.audio_content).decode(
                 "utf-8"
             )
 
-            cache_key = self._cache_key(text, language, rate)
+            cache_key: str = self._cache_key(text, language, rate)
             self._put_cache(cache_key, audio_b64)
 
             return {
@@ -236,24 +340,34 @@ class TTSService:
                 "voice": voice_cfg[1],
                 "success": True,
             }
-        except Exception as exc:
-            logger.exception("TTS synthesis failed: %s", exc)
+        except (ValueError, RuntimeError, ConnectionError) as exc:
+            logger.error("TTS synthesis failed: %s", exc)
             return {"error": str(exc), "success": False}
 
     @staticmethod
     def _build_voice_params(
-        voice_cfg: tuple[str, str, str],
+        voice_cfg: Tuple[str, str, str],
     ) -> Any:
         """Build voice selection parameters from config tuple.
 
+        Detailed description:
+            Converts the internal tuple config for a voice into the 
+            API-required VoiceSelectionParams.
+            
         Args:
             voice_cfg: Tuple of (lang_code, voice_name, gender_str).
 
         Returns:
             VoiceSelectionParams instance.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> params = TTSService._build_voice_params(VOICE_MAP['en'])
         """
         lang_code, voice_name, gender_str = voice_cfg
-        gender = getattr(
+        gender: Any = getattr(
             texttospeech.SsmlVoiceGender,
             gender_str,
             texttospeech.SsmlVoiceGender.NEUTRAL,
@@ -271,12 +385,24 @@ class TTSService:
     def _put_cache(self, key: str, value: str) -> None:
         """Add to cache, evicting the oldest entry if at capacity.
 
+        Detailed description:
+            Limits memory growth by enforcing the max cache size for audio clips.
+            
         Args:
             key: Cache key.
             value: Base64-encoded audio data.
+            
+        Returns:
+            None
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc._put_cache("key123", "base64audio")
         """
         if len(self._cache) >= self._max_cache_size:
-            oldest = next(iter(self._cache))
+            oldest: str = next(iter(self._cache))
             del self._cache[oldest]
             logger.debug("Evicted oldest TTS cache entry.")
         self._cache[key] = value
@@ -285,6 +411,9 @@ class TTSService:
     def _cache_key(text: str, language: str, rate: float) -> str:
         """Create a deterministic cache key.
 
+        Detailed description:
+            Constructs a unique SHA-256 hash based on language, rate, and text.
+            
         Args:
             text: The source text.
             language: Target language code.
@@ -292,6 +421,12 @@ class TTSService:
 
         Returns:
             SHA-256 hex digest cache key.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> key = TTSService._cache_key("Hi", "en", 1.0)
         """
-        raw = f"{language}::{rate}::{text}"
+        raw: str = f"{language}::{rate}::{text}"
         return hashlib.sha256(raw.encode()).hexdigest()

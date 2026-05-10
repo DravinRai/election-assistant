@@ -5,11 +5,9 @@ Provides session-scoped conversation history storage,
 anonymous auth session management, and quiz score persistence.
 Falls back gracefully when Firebase SDK is unavailable.
 
-Author: Ankit Rai
-Version: 2.1.0
-Usage example:
-    from services.firebase_service import FirebaseService
-    svc = FirebaseService.get_instance()
+Example:
+    >>> from services.firebase_service import FirebaseService
+    >>> svc = FirebaseService.get_instance()
 """
 
 from __future__ import annotations
@@ -20,35 +18,62 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from config import ENV_FIREBASE_CREDENTIALS, ENV_GOOGLE_CLOUD_PROJECT
+from config import (
+    ENV_FIREBASE_CREDENTIALS, 
+    ENV_GOOGLE_CLOUD_PROJECT,
+    HISTORY_LIMIT_DEFAULT,
+    QUIZ_SCORES_LIMIT,
+)
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Guard import
 try:
     import firebase_admin
     from firebase_admin import credentials, firestore
 
-    _FIREBASE_AVAILABLE = True
+    _FIREBASE_AVAILABLE: bool = True
 except ImportError:
-    _FIREBASE_AVAILABLE = False
+    _FIREBASE_AVAILABLE: bool = False
     logger.info("Firebase SDK not installed — persistence disabled.")
 
-__all__ = ["FirebaseService"]
+__all__: list[str] = ["FirebaseService"]
 
 
 class FirebaseService:
     """Manage Firestore persistence for conversations and quiz scores.
 
     Attributes:
+        _instance: Singleton instance.
         _db: Firestore client instance (or None).
         _project_id: Google Cloud project identifier.
+        _credentials_path: Path to service account credentials.
     """
 
     _instance: FirebaseService | None = None
+    _db: Any
+    _project_id: str
+    _credentials_path: str
 
     def __init__(self) -> None:
-        """Initialise with optional Firestore backend."""
+        """Initialise with optional Firestore backend.
+        
+        Detailed description:
+            Reads project IDs and credentials from environment variables to 
+            initialise Firestore. Falls back cleanly if unavailable.
+            
+        Args:
+            None
+            
+        Returns:
+            None
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc = FirebaseService()
+        """
         self._db = None
         self._project_id = os.environ.get(ENV_GOOGLE_CLOUD_PROJECT, "")
         self._credentials_path = os.environ.get(ENV_FIREBASE_CREDENTIALS, "")
@@ -59,7 +84,24 @@ class FirebaseService:
             logger.info("FirebaseService running in disabled mode.")
 
     def _init_firebase(self) -> None:
-        """Attempt to initialise Firebase app and Firestore client."""
+        """Attempt to initialise Firebase app and Firestore client.
+        
+        Detailed description:
+            Configures firebase_admin using the provided credentials or 
+            default options. Allows graceful fallback on failure.
+            
+        Args:
+            None
+            
+        Returns:
+            None
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc._init_firebase()
+        """
         try:
             try:
                 firebase_admin.get_app()
@@ -67,7 +109,7 @@ class FirebaseService:
                 if self._credentials_path and os.path.exists(
                     self._credentials_path
                 ):
-                    cred = credentials.Certificate(self._credentials_path)
+                    cred: Any = credentials.Certificate(self._credentials_path)
                     firebase_admin.initialize_app(
                         cred, {"projectId": self._project_id}
                     )
@@ -79,21 +121,53 @@ class FirebaseService:
             logger.info(
                 "FirebaseService initialised (project=%s).", self._project_id
             )
-        except Exception:
-            logger.exception(
-                "Failed to initialise Firebase — persistence disabled."
+        except (ValueError, RuntimeError) as exc:
+            logger.error(
+                "Failed to initialise Firebase — persistence disabled: %s", exc
             )
 
     @classmethod
     def get_instance(cls) -> FirebaseService:
-        """Return the singleton FirebaseService instance."""
+        """Return the singleton FirebaseService instance.
+        
+        Detailed description:
+            Provides singleton access to the database client.
+            
+        Args:
+            None
+            
+        Returns:
+            The singleton FirebaseService instance.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> svc = FirebaseService.get_instance()
+        """
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     @property
     def is_available(self) -> bool:
-        """Whether the Firestore backend is connected."""
+        """Whether the Firestore backend is connected.
+        
+        Detailed description:
+            Property returning True if the _db attribute is set and active.
+            
+        Args:
+            None
+            
+        Returns:
+            True if connected, False otherwise.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> if svc.is_available: pass
+        """
         return self._db is not None
 
     # ------------------------------------------------------------------
@@ -103,10 +177,23 @@ class FirebaseService:
     def create_session(self) -> dict[str, Any]:
         """Create an anonymous session.
 
+        Detailed description:
+            Generates a new UUID for the session and creates a document 
+            in Firestore if available.
+            
+        Args:
+            None
+
         Returns:
             Dict with 'session_id', 'success', and 'persisted' fields.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> session = svc.create_session()
         """
-        session_id = str(uuid.uuid4())
+        session_id: str = str(uuid.uuid4())
         if not self._db:
             return {
                 "session_id": session_id,
@@ -126,8 +213,8 @@ class FirebaseService:
                 "success": True,
                 "persisted": True,
             }
-        except Exception as exc:
-            logger.exception("Failed to create session: %s", exc)
+        except (ValueError, RuntimeError, TypeError, KeyError, ConnectionError) as exc:
+            logger.error("Failed to create session: %s", exc)
             return {
                 "session_id": session_id,
                 "success": True,
@@ -143,9 +230,13 @@ class FirebaseService:
         session_id: str,
         role: str,
         content: str,
-        metadata: Optional[dict] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Save a chat message to the session's conversation history.
+
+        Detailed description:
+            Appends a message document to the subcollection inside the session 
+            document and increments the message counter.
 
         Args:
             session_id: The session identifier.
@@ -155,11 +246,17 @@ class FirebaseService:
 
         Returns:
             Dict with 'success' and 'persisted' fields.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> res = svc.save_message("abc", "user", "Hi")
         """
         if not self._db:
             return {"success": True, "persisted": False}
         try:
-            msg_data = {
+            msg_data: dict[str, Any] = {
                 "role": role,
                 "content": content,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -172,14 +269,18 @@ class FirebaseService:
                 {"message_count": firestore.Increment(1)}
             )
             return {"success": True, "persisted": True}
-        except Exception as exc:
-            logger.exception("Failed to save message: %s", exc)
+        except (ValueError, RuntimeError, TypeError, KeyError, ConnectionError) as exc:
+            logger.error("Failed to save message: %s", exc)
             return {"success": False, "error": str(exc)}
 
     def get_conversation_history(
-        self, session_id: str, limit: int = 50
+        self, session_id: str, limit: int = HISTORY_LIMIT_DEFAULT
     ) -> dict[str, Any]:
         """Retrieve conversation history for a session.
+
+        Detailed description:
+            Fetches messages chronologically up to the provided limit from the 
+            session document.
 
         Args:
             session_id: The session identifier.
@@ -187,11 +288,17 @@ class FirebaseService:
 
         Returns:
             Dict with 'messages' list and 'success' flag.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> history = svc.get_conversation_history("abc")
         """
         if not self._db:
             return {"messages": [], "success": True, "persisted": False}
         try:
-            docs = (
+            docs: Any = (
                 self._db.collection("sessions")
                 .document(session_id)
                 .collection("messages")
@@ -203,8 +310,8 @@ class FirebaseService:
                 "messages": [doc.to_dict() for doc in docs],
                 "success": True,
             }
-        except Exception as exc:
-            logger.exception("Failed to fetch history: %s", exc)
+        except (ValueError, RuntimeError, TypeError, KeyError, ConnectionError) as exc:
+            logger.error("Failed to fetch history: %s", exc)
             return {"messages": [], "success": False, "error": str(exc)}
 
     # ------------------------------------------------------------------
@@ -216,6 +323,10 @@ class FirebaseService:
     ) -> dict[str, Any]:
         """Save a quiz score for the session.
 
+        Detailed description:
+            Calculates percentage and stores the outcome into the quiz_scores
+            subcollection for the given session.
+
         Args:
             session_id: The session identifier.
             score: Number of correct answers.
@@ -224,11 +335,17 @@ class FirebaseService:
 
         Returns:
             Dict with 'success' and 'persisted' fields.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> res = svc.save_quiz_score("abc", 8, 10, "General")
         """
         if not self._db:
             return {"success": True, "persisted": False}
         try:
-            score_data = {
+            score_data: dict[str, Any] = {
                 "score": score,
                 "total": total,
                 "topic": topic,
@@ -241,31 +358,41 @@ class FirebaseService:
                 "quiz_scores"
             ).add(score_data)
             return {"success": True, "persisted": True}
-        except Exception as exc:
-            logger.exception("Failed to save quiz score: %s", exc)
+        except (ValueError, RuntimeError, TypeError, KeyError, ConnectionError) as exc:
+            logger.error("Failed to save quiz score: %s", exc)
             return {"success": False, "error": str(exc)}
 
     def get_quiz_scores(self, session_id: str) -> dict[str, Any]:
         """Retrieve quiz scores for a session.
+
+        Detailed description:
+            Fetches recent quiz score records in descending chronological order
+            up to the limit.
 
         Args:
             session_id: The session identifier.
 
         Returns:
             Dict with 'scores' list and 'success' flag.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> scores = svc.get_quiz_scores("abc")
         """
         if not self._db:
             return {"scores": [], "success": True, "persisted": False}
         try:
-            docs = (
+            docs: Any = (
                 self._db.collection("sessions")
                 .document(session_id)
                 .collection("quiz_scores")
                 .order_by("timestamp", direction=firestore.Query.DESCENDING)
-                .limit(20)
+                .limit(QUIZ_SCORES_LIMIT)
                 .stream()
             )
             return {"scores": [doc.to_dict() for doc in docs], "success": True}
-        except Exception as exc:
-            logger.exception("Failed to fetch quiz scores: %s", exc)
+        except (ValueError, RuntimeError, TypeError, KeyError, ConnectionError) as exc:
+            logger.error("Failed to fetch quiz scores: %s", exc)
             return {"scores": [], "success": False, "error": str(exc)}

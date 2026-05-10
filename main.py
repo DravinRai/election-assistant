@@ -7,23 +7,30 @@ Production-grade entry point implementing MVC separation:
   Model layer: Typed dataclasses in models.py
 
 Security features:
-  • Flask-Talisman for CSP, HSTS, X-Frame-Options
-  • Flask-Limiter for rate limiting (10 req/min per IP on chat)
-  • bleach-based input sanitisation on all user inputs
-  • Content-Type validation on POST requests
-  • 10 KB max request payload
-  • Security event logging
-  • Flask-Compress for gzip responses
-  • Redis-backed caching with in-memory fallback
+  - Flask-Talisman for CSP, HSTS, X-Frame-Options
+  - Flask-Limiter for rate limiting (10 req/min per IP on chat)
+  - bleach-based input sanitisation on all user inputs
+  - Content-Type validation on POST requests
+  - 10 KB max request payload
+  - Security event logging
+  - Flask-Compress for gzip responses
+  - Redis-backed caching with in-memory fallback
+
+Example:
+    >>> from main import create_app
+    >>> application = create_app()
 """
 
 from __future__ import annotations
 
+# pylint: disable=import-outside-toplevel
 import json
 import logging
 import os
 import sys
 import time
+import random
+import urllib.parse
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable
@@ -56,10 +63,19 @@ from config import (
     RATE_LIMIT_TRANSLATE,
     RATE_LIMIT_TTS,
     AppConfig,
+    CONTENT_TYPE_JSON,
+    CACHE_TTL_SECONDS,
+    HTTP_200_OK,
+    HTTP_400_BAD_REQUEST,
+    HTTP_404_NOT_FOUND,
+    HTTP_413_PAYLOAD_TOO_LARGE,
+    HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+    HTTP_429_TOO_MANY_REQUESTS,
+    HTTP_500_INTERNAL_SERVER_ERROR,
 )
 from models import QuizScoreRequest, TranslateRequest, TTSRequest
 
-__all__ = ["create_app", "app"]
+__all__: list[str] = ["create_app", "app"]
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -76,12 +92,22 @@ class _JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format a log record as a JSON string.
+        
+        Detailed description:
+            Serialises the log record into a single-line JSON format.
 
         Args:
             record: The log record to format.
 
         Returns:
             A JSON-encoded string with severity, message, timestamp, and logger.
+            
+        Raises:
+            None
+            
+        Example:
+            >>> fmt = _JsonFormatter()
+            >>> msg = fmt.format(record)
         """
         log_entry: dict[str, Any] = {
             "severity": record.levelname,
@@ -95,34 +121,59 @@ class _JsonFormatter(logging.Formatter):
 
 
 def _setup_logging() -> None:
-    """Configure structured JSON logging to stdout."""
-    handler = logging.StreamHandler(sys.stdout)
+    """Configure structured JSON logging to stdout.
+    
+    Detailed description:
+        Sets up the root logger to output JSON structured logs to stdout.
+        
+    Args:
+        None
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _setup_logging()
+    """
+    handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(_JsonFormatter())
-    root = logging.getLogger()
+    root: logging.Logger = logging.getLogger()
     root.setLevel(logging.INFO)
     root.handlers = [handler]
 
 
 _setup_logging()
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # In-memory cache (Redis fallback)
 # ---------------------------------------------------------------------------
 _response_cache: dict[str, dict[str, Any]] = {}
-_CACHE_TTL = 300  # 5 minutes
+_CACHE_TTL: int = CACHE_TTL_SECONDS
 
 
 def _cache_get(key: str) -> dict[str, Any] | None:
     """Retrieve a value from the in-memory cache.
 
+    Detailed description:
+        Looks up a key in the cache and returns its payload if not expired.
+        
     Args:
         key: The cache key to look up.
 
     Returns:
         Cached dictionary if found and not expired, else None.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> val = _cache_get("my_key")
     """
-    entry = _response_cache.get(key)
+    entry: dict[str, Any] | None = _response_cache.get(key)
     if entry and time.time() - entry.get("_ts", 0) < _CACHE_TTL:
         return entry.get("_data")
     return None
@@ -131,9 +182,21 @@ def _cache_get(key: str) -> dict[str, Any] | None:
 def _cache_set(key: str, data: dict[str, Any]) -> None:
     """Store a value in the in-memory cache with a timestamp.
 
+    Detailed description:
+        Writes a value to the in-memory dictionary cache with the current time.
+        
     Args:
         key: The cache key.
         data: The dictionary to cache.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _cache_set("key", {"a": 1})
     """
     _response_cache[key] = {"_data": data, "_ts": time.time()}
 
@@ -146,22 +209,28 @@ def _cache_set(key: str, data: dict[str, Any]) -> None:
 def sanitise_input(text: str | None) -> str:
     """Strip HTML tags and dangerous content from user input.
 
-    Removes <script> tags and their inner content entirely.
-    Removes all other HTML tags but preserves their text content.
-    Strips leading/trailing whitespace and handles None input.
+    Detailed description:
+        Removes <script> tags and their inner content entirely.
+        Removes all other HTML tags but preserves their text content.
+        Strips leading/trailing whitespace and handles None input.
 
     Args:
         text: Raw user input string or None.
 
     Returns:
         Sanitised plain-text string.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> clean = sanitise_input("<script>alert(1)</script>hello")
     """
     if text is None:
         return ""
 
     # 1. Remove <script> blocks (tag and content) entirely
-    # [^>] is safer than .*? for the tag itself, but .*? works for the inner content
-    text = re.sub(
+    clean_text: str = re.sub(
         r"<script\b[^>]*>.*?</script>",
         "",
         str(text),
@@ -169,20 +238,33 @@ def sanitise_input(text: str | None) -> str:
     )
 
     # 2. Remove all other tags but keep their text content
-    clean_text = bleach.clean(text, tags=[], attributes={}, strip=True)
+    clean_text = bleach.clean(clean_text, tags=[], attributes={}, strip=True)
 
     # 3. Strip whitespace
     return clean_text.strip()
 
 
-def validate_content_type() -> Response | None:
+def validate_content_type() -> tuple[Response, int] | None:
     """Validate that POST requests include application/json Content-Type.
 
+    Detailed description:
+        Ensures clients are sending the correct content type to avoid parsing 
+        errors.
+        
+    Args:
+        None
+        
     Returns:
         A 415 JSON error response if content type is invalid, else None.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> err = validate_content_type()
     """
-    content_type = request.content_type or ""
-    if "application/json" not in content_type:
+    content_type: str = request.content_type or ""
+    if CONTENT_TYPE_JSON not in content_type:
         logger.warning(
             "SECURITY: Invalid Content-Type '%s' from %s",
             content_type,
@@ -195,7 +277,7 @@ def validate_content_type() -> Response | None:
                     "success": False,
                 }
             ),
-            415,
+            HTTP_415_UNSUPPORTED_MEDIA_TYPE,
         )
     return None
 
@@ -203,16 +285,27 @@ def validate_content_type() -> Response | None:
 def require_json(func: Callable) -> Callable:
     """Decorator to enforce application/json Content-Type on POST endpoints.
 
+    Detailed description:
+        Wraps a Flask route handler, checking the content type before executing.
+        
     Args:
         func: The route handler to wrap.
 
     Returns:
         Wrapped function that validates Content-Type before proceeding.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> @app.route('/api', methods=['POST'])
+        >>> @require_json
+        >>> def api_route(): pass
     """
 
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        error = validate_content_type()
+        error: tuple[Response, int] | None = validate_content_type()
         if error:
             return error
         return func(*args, **kwargs)
@@ -228,9 +321,22 @@ def require_json(func: Callable) -> Callable:
 def log_security_event(event: str, details: str = "") -> None:
     """Log a security-relevant event with client context.
 
+    Detailed description:
+        Emits a structured log warning for potential security issues, including 
+        the client IP and requested path.
+        
     Args:
         event: Short event identifier (e.g. 'RATE_LIMIT_HIT').
         details: Additional context about the event.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> log_security_event("AUTH_FAIL", "user=admin")
     """
     logger.warning(
         "SECURITY_EVENT: %s | ip=%s | path=%s | %s",
@@ -249,11 +355,20 @@ def log_security_event(event: str, details: str = "") -> None:
 def _check_service_env(key: str) -> str:
     """Return 'configured' or 'not_configured' based on env var presence.
 
+    Detailed description:
+        Checks whether an environment variable is present and not empty.
+        
     Args:
         key: The environment variable name to check.
 
     Returns:
         'configured' if the env var is set, else 'not_configured'.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> status = _check_service_env("PORT")
     """
     return "configured" if os.environ.get(key) else "not_configured"
 
@@ -263,18 +378,51 @@ def _check_service_env(key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _setup_security_and_cors(application, cfg):
-    """Setup security headers and CORS."""
+def _setup_security_and_cors(application: Flask, cfg: AppConfig) -> None:
+    """Setup security headers and CORS.
+    
+    Detailed description:
+        Configures Talisman and CORS based on application configuration.
+        
+    Args:
+        application: The Flask application.
+        cfg: Application configuration dataclass.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _setup_security_and_cors(app, config)
+    """
     Compress(application)
     Talisman(
         application, content_security_policy=CSP_DIRECTIVES, force_https=False
     )
-    origins = cfg.allowed_origins.split(",")
+    origins: list[str] = cfg.allowed_origins.split(",")
     CORS(application, resources={r"/api/*": {"origins": origins}})
 
 
-def _setup_rate_limiter(application):
-    """Setup and return rate limiter."""
+def _setup_rate_limiter(application: Flask) -> Limiter:
+    """Setup and return rate limiter.
+    
+    Detailed description:
+        Initialises Flask-Limiter for the application.
+        
+    Args:
+        application: The Flask application.
+        
+    Returns:
+        The configured Limiter instance.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> limiter = _setup_rate_limiter(app)
+    """
     return Limiter(
         key_func=get_remote_address,
         app=application,
@@ -284,19 +432,53 @@ def _setup_rate_limiter(application):
     )
 
 
-def _setup_context_processor(application, cfg):
-    """Setup template context processor."""
+def _setup_context_processor(application: Flask, cfg: AppConfig) -> None:
+    """Setup template context processor.
+    
+    Detailed description:
+        Injects global variables into Jinja2 templates.
+        
+    Args:
+        application: The Flask application.
+        cfg: Application configuration.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _setup_context_processor(app, cfg)
+    """
 
     @application.context_processor
-    def inject_config():
+    def inject_config() -> dict[str, str]:
         return {
             "ga_measurement_id": cfg.ga_measurement_id,
             "google_maps_api_key": cfg.google_maps_api_key,
         }
 
 
-def _register_routes(application, limiter):
-    """Register all routes to the application."""
+def _register_routes(application: Flask, limiter: Limiter) -> None:
+    """Register all routes to the application.
+    
+    Detailed description:
+        Binds view functions to URLs and attaches rate limiting decorators.
+        
+    Args:
+        application: The Flask application.
+        limiter: The rate limiter instance.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _register_routes(app, limiter)
+    """
     application.add_url_rule("/", view_func=index)
     application.add_url_rule("/health", view_func=limiter.exempt(health))
     application.add_url_rule(
@@ -357,134 +539,451 @@ def _register_routes(application, limiter):
     )
 
 
-def _register_error_handlers(application):
-    """Register error handlers."""
-    application.register_error_handler(404, not_found)
-    application.register_error_handler(413, payload_too_large)
-    application.register_error_handler(429, rate_limited)
-    application.register_error_handler(500, server_error)
+def _register_error_handlers(application: Flask) -> None:
+    """Register error handlers.
+    
+    Detailed description:
+        Binds custom JSON responses for specific HTTP errors.
+        
+    Args:
+        application: The Flask application.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _register_error_handlers(app)
+    """
+    application.register_error_handler(HTTP_404_NOT_FOUND, not_found)
+    application.register_error_handler(HTTP_413_PAYLOAD_TOO_LARGE, payload_too_large)
+    application.register_error_handler(HTTP_429_TOO_MANY_REQUESTS, rate_limited)
+    application.register_error_handler(HTTP_500_INTERNAL_SERVER_ERROR, server_error)
 
 
-def index():
-    """Serve the main UI."""
+def index() -> str:
+    """Serve the main UI.
+    
+    Detailed description:
+        Renders the index.html template for the frontend interface.
+        
+    Args:
+        None
+        
+    Returns:
+        String of rendered HTML.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> html = index()
+    """
     return render_template("index.html")
 
 
-def health():
-    """Liveness / readiness probe."""
+def health() -> tuple[Response, int]:
+    """Liveness / readiness probe.
+    
+    Detailed description:
+        Returns system health status for load balancers.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = health()
+    """
     return _build_health_response()
 
 
-def chat():
-    """Accept a user message, moderate, classify, and respond."""
+def chat() -> tuple[Response, int]:
+    """Accept a user message, moderate, classify, and respond.
+    
+    Detailed description:
+        Main conversational endpoint.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = chat()
+    """
     return _handle_chat()
 
 
-def translate():
-    """Translate text to a target language."""
+def translate() -> tuple[Response, int]:
+    """Translate text to a target language.
+    
+    Detailed description:
+        Translation endpoint using TranslateService.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = translate()
+    """
     return _handle_translate()
 
 
-def translate_languages():
-    """Return supported languages for translation."""
+def translate_languages() -> Response:
+    """Return supported languages for translation.
+    
+    Detailed description:
+        Returns static list of supported languages.
+        
+    Args:
+        None
+        
+    Returns:
+        JSON response of languages.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res = translate_languages()
+    """
     from services.translate_service import TranslateService
 
-    svc = TranslateService.get_instance()
+    svc: TranslateService = TranslateService.get_instance()
     return jsonify(svc.get_supported_languages())
 
 
-def detect_language():
-    """Detect the language of input text."""
+def detect_language() -> tuple[Response, int]:
+    """Detect the language of input text.
+    
+    Detailed description:
+        Uses the TranslateService to determine text language.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = detect_language()
+    """
     return _handle_detect_language()
 
 
-def text_to_speech():
-    """Convert text to speech audio."""
+def text_to_speech() -> tuple[Response, int]:
+    """Convert text to speech audio.
+    
+    Detailed description:
+        Returns base64 encoded audio for given text.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = text_to_speech()
+    """
     return _handle_tts()
 
 
-def news_search():
-    """Search for election-related news."""
+def news_search() -> tuple[Response, int]:
+    """Search for election-related news.
+    
+    Detailed description:
+        Returns Custom Search API results.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = news_search()
+    """
     return _handle_news_search()
 
 
-def create_session():
-    """Create a new anonymous session for persistence."""
+def create_session() -> Response:
+    """Create a new anonymous session for persistence.
+    
+    Detailed description:
+        Initialises a Firebase document for history tracking.
+        
+    Args:
+        None
+        
+    Returns:
+        JSON response with session ID.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res = create_session()
+    """
     from services.firebase_service import FirebaseService
 
-    svc = FirebaseService.get_instance()
+    svc: FirebaseService = FirebaseService.get_instance()
     return jsonify(svc.create_session())
 
 
-def save_quiz_score(session_id):
-    """Save a quiz score for a session."""
+def save_quiz_score(session_id: str) -> tuple[Response, int]:
+    """Save a quiz score for a session.
+    
+    Detailed description:
+        Persists a quiz result to the database.
+        
+    Args:
+        session_id: The session ID from the URL.
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = save_quiz_score("uuid")
+    """
     return _handle_quiz_score(session_id)
 
 
-def topics():
-    """Return the list of supported election topics."""
+def topics() -> Response:
+    """Return the list of supported election topics.
+    
+    Detailed description:
+        Returns static list of vertex classification topics.
+        
+    Args:
+        None
+        
+    Returns:
+        JSON response of topics.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res = topics()
+    """
     from services.vertex_service import ELECTION_TOPICS
 
     return jsonify({"topics": ELECTION_TOPICS, "success": True})
 
 
-def quiz_question():
-    """Generate a random election quiz question."""
+def quiz_question() -> tuple[Response, int]:
+    """Generate a random election quiz question.
+    
+    Detailed description:
+        Prompts Gemini to create a quiz.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = quiz_question()
+    """
     return _handle_quiz_question()
 
 
-def timeline():
-    """Retrieve an election timeline for a country."""
+def timeline() -> tuple[Response, int]:
+    """Retrieve an election timeline for a country.
+    
+    Detailed description:
+        Uses Gemini to generate election phases.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = timeline()
+    """
     return _handle_timeline()
 
 
-def map_endpoint():
-    """Return map configuration or fallback embed URL."""
+def map_endpoint() -> tuple[Response, int]:
+    """Return map configuration or fallback embed URL.
+    
+    Detailed description:
+        Provides mapping details based on query.
+        
+    Args:
+        None
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = map_endpoint()
+    """
     return _handle_map()
 
 
-def not_found(error: Exception):
-    """Handle 404 errors with JSON response."""
-    return jsonify({"error": "Resource not found.", "success": False}), 404
+def not_found(error: Exception) -> tuple[Response, int]:
+    """Handle 404 errors with JSON response.
+    
+    Detailed description:
+        Returns a standardised JSON error for undefined routes.
+        
+    Args:
+        error: The caught exception.
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = not_found(Exception())
+    """
+    return jsonify({"error": "Resource not found.", "success": False}), HTTP_404_NOT_FOUND
 
 
-def payload_too_large(error: Exception):
-    """Handle oversized request payloads."""
+def payload_too_large(error: Exception) -> tuple[Response, int]:
+    """Handle oversized request payloads.
+    
+    Detailed description:
+        Logs a security event and returns a 413 error.
+        
+    Args:
+        error: The caught exception.
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = payload_too_large(Exception())
+    """
     log_security_event("PAYLOAD_TOO_LARGE", f"ip={request.remote_addr}")
     return (
         jsonify({"error": "Request payload exceeds limit.", "success": False}),
-        413,
+        HTTP_413_PAYLOAD_TOO_LARGE,
     )
 
 
-def rate_limited(error: Exception):
-    """Handle rate limit exceeded errors."""
-    return jsonify({"error": "Too many requests.", "success": False}), 429
+def rate_limited(error: Exception) -> tuple[Response, int]:
+    """Handle rate limit exceeded errors.
+    
+    Detailed description:
+        Returns a 429 error when request thresholds are breached.
+        
+    Args:
+        error: The caught exception.
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = rate_limited(Exception())
+    """
+    return jsonify({"error": "Too many requests.", "success": False}), HTTP_429_TOO_MANY_REQUESTS
 
 
-def server_error(error: Exception):
-    """Handle internal server errors."""
+def server_error(error: Exception) -> tuple[Response, int]:
+    """Handle internal server errors.
+    
+    Detailed description:
+        Returns a generic 500 error payload.
+        
+    Args:
+        error: The caught exception.
+        
+    Returns:
+        Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = server_error(Exception())
+    """
     return (
         jsonify(
             {"error": "An internal server error occurred.", "success": False}
         ),
-        500,
+        HTTP_500_INTERNAL_SERVER_ERROR,
     )
 
 
 def create_app() -> Flask:
     """Create and configure the Flask application.
 
+    Detailed description:
+        Factory function that initialises the app, configures it,
+        attaches middleware and registers routes.
+        
+    Args:
+        None
+
     Returns:
         Configured Flask application instance.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> app = create_app()
     """
-    application = Flask(__name__)
-    cfg = AppConfig()
+    application: Flask = Flask(__name__)
+    cfg: AppConfig = AppConfig()
     application.config["SECRET_KEY"] = cfg.flask_secret_key
     application.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 
     _setup_security_and_cors(application, cfg)
-    limiter = _setup_rate_limiter(application)
+    limiter: Limiter = _setup_rate_limiter(application)
     _setup_context_processor(application, cfg)
     _register_routes(application, limiter)
     _register_error_handlers(application)
@@ -501,8 +1000,20 @@ def create_app() -> Flask:
 def _on_rate_limit_breach(limit: Any) -> None:
     """Log rate limit breaches for security monitoring.
 
+    Detailed description:
+        Fired by Flask-Limiter when a client breaches the configured limit.
+        
     Args:
         limit: The rate limit rule that was breached.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _on_rate_limit_breach("10 per minute")
     """
     log_security_event("RATE_LIMIT_HIT", f"limit={limit}")
 
@@ -515,10 +1026,22 @@ def _on_rate_limit_breach(limit: Any) -> None:
 def _build_health_response() -> tuple[Response, int]:
     """Build the health check response payload.
 
+    Detailed description:
+        Checks all environment variables and returns service states.
+        
+    Args:
+        None
+
     Returns:
         Tuple of JSON health status and HTTP 200.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _build_health_response()
     """
-    services_status = {
+    services_status: dict[str, str] = {
         "gemini": _check_service_env("GOOGLE_API_KEY"),
         "translate": _check_service_env("GOOGLE_TRANSLATE_API_KEY"),
         "tts": _check_service_env("GOOGLE_TTS_API_KEY"),
@@ -536,36 +1059,49 @@ def _build_health_response() -> tuple[Response, int]:
                 "services": services_status,
             }
         ),
-        200,
+        HTTP_200_OK,
     )
 
 
 def _handle_chat() -> tuple[Response, int]:
-    """Process a chat request through moderation → classification → Gemini.
+    """Process a chat request through moderation, classification, and Gemini.
+
+    Detailed description:
+        Validates the request, performs Vertex moderation and classification, 
+        calls Gemini, and triggers async persistence.
+        
+    Args:
+        None
 
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_chat()
     """
     from services.gemini_service import GeminiElectionAssistant
     from services.vertex_service import VertexService
 
-    data = request.get_json(silent=True)
+    data: dict[str, Any] | None = request.get_json(silent=True)
     if not data or not data.get("message"):
         return (
             jsonify(
                 {"error": "A 'message' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    raw_message = str(data.get("message", ""))
-    user_message = sanitise_input(raw_message)
+    raw_message: str = str(data.get("message", ""))
+    user_message: str = sanitise_input(raw_message)
     if not user_message:
         return (
             jsonify(
                 {"error": "A 'message' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
     if len(user_message) > MAX_MESSAGE_LENGTH:
@@ -576,15 +1112,14 @@ def _handle_chat() -> tuple[Response, int]:
                     "success": False,
                 }
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    history: list = data.get("history", [])
     session_id: str = sanitise_input(str(data.get("session_id", "")))
 
     # 1. Content moderation
-    vertex = VertexService.get_instance()
-    moderation = vertex.moderate_content(user_message)
+    vertex: VertexService = VertexService.get_instance()
+    moderation: dict[str, Any] = vertex.moderate_content(user_message)
     if not moderation["safe"]:
         log_security_event("CONTENT_BLOCKED", f"reason={moderation['reason']}")
         return (
@@ -595,18 +1130,18 @@ def _handle_chat() -> tuple[Response, int]:
                     "blocked": True,
                 }
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
     # 2. Topic classification
-    classification = vertex.classify_topic(user_message)
+    classification: dict[str, Any] = vertex.classify_topic(user_message)
 
     # 3. Gemini response
     try:
-        gemini = GeminiElectionAssistant()
-        result = gemini.chat(user_message)
-    except (ValueError, KeyError, ConnectionError, RuntimeError) as exc:
-        logger.exception("Gemini chat failed: %s", exc)
+        gemini: GeminiElectionAssistant = GeminiElectionAssistant()
+        result: dict[str, Any] = gemini.chat(user_message)
+    except (ValueError, KeyError, ConnectionError, RuntimeError, TypeError) as exc:
+        logger.error("Gemini chat failed: %s", exc)
         return (
             jsonify(
                 {
@@ -614,7 +1149,7 @@ def _handle_chat() -> tuple[Response, int]:
                     "success": False,
                 }
             ),
-            500,
+            HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     # 4. Persist to Firestore (fire-and-forget)
@@ -630,7 +1165,7 @@ def _handle_chat() -> tuple[Response, int]:
                 "success": True,
             }
         ),
-        200,
+        HTTP_200_OK,
     )
 
 
@@ -642,18 +1177,30 @@ def _persist_chat(
 ) -> None:
     """Persist chat messages to Firestore (fire-and-forget).
 
+    Detailed description:
+        Saves user and model messages to Firebase if available.
+        
     Args:
         session_id: The session identifier.
         user_message: The user's message.
         result: The Gemini response dictionary.
         classification: The topic classification result.
+        
+    Returns:
+        None
+        
+    Raises:
+        None
+        
+    Example:
+        >>> _persist_chat("uuid", "Hi", {}, {})
     """
     if not session_id:
         return
     try:
         from services.firebase_service import FirebaseService
 
-        fb = FirebaseService.get_instance()
+        fb: FirebaseService = FirebaseService.get_instance()
         fb.save_message(session_id, "user", user_message)
         fb.save_message(
             session_id,
@@ -661,28 +1208,40 @@ def _persist_chat(
             result.get("response", ""),
             {"topic": classification["topic"]},
         )
-    except (ValueError, KeyError, ConnectionError, RuntimeError):
+    except (ValueError, KeyError, ConnectionError, RuntimeError, TypeError):
         logger.warning("Firebase persistence failed — continuing without.")
 
 
 def _handle_translate() -> tuple[Response, int]:
     """Process a translation request.
 
+    Detailed description:
+        Validates request JSON and calls the TranslateService.
+        
+    Args:
+        None
+        
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_translate()
     """
     from services.translate_service import TranslateService
 
-    data = request.get_json(silent=True)
+    data: dict[str, Any] | None = request.get_json(silent=True)
     if not data or not data.get("text"):
         return (
             jsonify(
                 {"error": "A 'text' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    req = TranslateRequest(
+    req: TranslateRequest = TranslateRequest(
         text=sanitise_input(str(data["text"])),
         target_language=sanitise_input(str(data.get("target_language", "en"))),
         source_language=data.get("source_language"),
@@ -692,56 +1251,80 @@ def _handle_translate() -> tuple[Response, int]:
             jsonify(
                 {"error": "A 'text' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    svc = TranslateService.get_instance()
-    result = svc.translate_text(
+    svc: TranslateService = TranslateService.get_instance()
+    result: dict[str, Any] = svc.translate_text(
         req.text, req.target_language, req.source_language
     )
-    status_code = 200 if result.get("success") else 500
+    status_code: int = HTTP_200_OK if result.get("success") else HTTP_500_INTERNAL_SERVER_ERROR
     return jsonify(result), status_code
 
 
 def _handle_detect_language() -> tuple[Response, int]:
     """Process a language detection request.
 
+    Detailed description:
+        Validates request and delegates to TranslateService language detection.
+        
+    Args:
+        None
+
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_detect_language()
     """
     from services.translate_service import TranslateService
 
-    data = request.get_json(silent=True)
+    data: dict[str, Any] | None = request.get_json(silent=True)
     if not data or not data.get("text"):
         return (
             jsonify(
                 {"error": "A 'text' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    svc = TranslateService.get_instance()
-    return jsonify(svc.detect_language(sanitise_input(str(data["text"])))), 200
+    svc: TranslateService = TranslateService.get_instance()
+    return jsonify(svc.detect_language(sanitise_input(str(data["text"])))), HTTP_200_OK
 
 
 def _handle_tts() -> tuple[Response, int]:
     """Process a text-to-speech request.
 
+    Detailed description:
+        Validates request and calls TTSService.
+        
+    Args:
+        None
+        
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_tts()
     """
     from services.tts_service import TTSService
 
-    data = request.get_json(silent=True)
+    data: dict[str, Any] | None = request.get_json(silent=True)
     if not data or not data.get("text"):
         return (
             jsonify(
                 {"error": "A 'text' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    req = TTSRequest(
+    req: TTSRequest = TTSRequest(
         text=sanitise_input(str(data["text"])),
         language=sanitise_input(str(data.get("language", "en"))),
         speaking_rate=float(data.get("speaking_rate", 1.0)),
@@ -751,175 +1334,103 @@ def _handle_tts() -> tuple[Response, int]:
             jsonify(
                 {"error": "A 'text' field is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    svc = TTSService.get_instance()
-    result = svc.synthesize(req.text, req.language, req.speaking_rate)
-    status_code = 200 if result.get("success") else 500
+    svc: TTSService = TTSService.get_instance()
+    result: dict[str, Any] = svc.synthesize(req.text, req.language, req.speaking_rate)
+    status_code: int = HTTP_200_OK if result.get("success") else HTTP_500_INTERNAL_SERVER_ERROR
     return jsonify(result), status_code
 
 
 def _handle_news_search() -> tuple[Response, int]:
     """Process a news search request.
 
+    Detailed description:
+        Retrieves query args and calls the SearchService.
+        
+    Args:
+        None
+
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_news_search()
     """
     from services.search_service import SearchService
 
-    query = sanitise_input(request.args.get("query", ""))
+    query: str = sanitise_input(request.args.get("query", ""))
     if not query:
         return (
             jsonify(
                 {"error": "A 'query' parameter is required.", "success": False}
             ),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    num = min(int(request.args.get("num", "5")), 10)
+    num: int = min(int(request.args.get("num", "5")), 10)
 
-    svc = SearchService.get_instance()
-    result = svc.search_news(query, num)
-    status_code = 200 if result.get("success") else 500
+    svc: SearchService = SearchService.get_instance()
+    result: dict[str, Any] = svc.search_news(query, num)
+    status_code: int = HTTP_200_OK if result.get("success") else HTTP_500_INTERNAL_SERVER_ERROR
     return jsonify(result), status_code
 
 
 def _handle_quiz_score(session_id: str) -> tuple[Response, int]:
     """Process a quiz score save request.
 
+    Detailed description:
+        Delegates the saving of the score to FirebaseService.
+        
     Args:
         session_id: The session identifier from the URL.
 
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_quiz_score("uuid")
     """
     from services.firebase_service import FirebaseService
 
-    data = request.get_json(silent=True)
+    data: dict[str, Any] | None = request.get_json(silent=True)
     if not data:
         return (
             jsonify({"error": "Request body is required.", "success": False}),
-            400,
+            HTTP_400_BAD_REQUEST,
         )
 
-    req = QuizScoreRequest(
+    req: QuizScoreRequest = QuizScoreRequest(
         score=int(data.get("score", 0)),
         total=int(data.get("total", 0)),
         topic=sanitise_input(str(data.get("topic", ""))),
     )
-    session_id = sanitise_input(session_id)
+    clean_session: str = sanitise_input(session_id)
 
-    svc = FirebaseService.get_instance()
-    result = svc.save_quiz_score(session_id, req.score, req.total, req.topic)
-    return jsonify(result), 200
+    svc: FirebaseService = FirebaseService.get_instance()
+    result: dict[str, Any] = svc.save_quiz_score(clean_session, req.score, req.total, req.topic)
+    return jsonify(result), HTTP_200_OK
 
 
-FALLBACK_QUESTIONS = [
+FALLBACK_QUESTIONS: list[dict[str, Any]] = [
     {
         "question": "What is the minimum voting age in most democratic countries?",
         "options": ["16", "18", "21", "25"],
         "correct_answer": "18",
-        "explanation": "In the majority of democratic nations, including the USA, UK, and India, the legal voting age is 18.",
+        "explanation": "In the majority of democratic nations, the legal voting age is 18.",
     },
     {
         "question": "Which of these is NOT a primary function of an election commission?",
-        "options": [
-            "Registering voters",
-            "Counting ballots",
-            "Passing new laws",
-            "Setting election dates",
-        ],
+        "options": ["Registering voters", "Counting ballots", "Passing new laws", "Setting election dates"],
         "correct_answer": "Passing new laws",
-        "explanation": "Election commissions are responsible for administering elections, while passing laws is the duty of the legislature.",
-    },
-    {
-        "question": "In the United States, what system determines the winner of a presidential election?",
-        "options": [
-            "Popular Vote",
-            "Electoral College",
-            "Parliamentary Majority",
-            "Proportional Representation",
-        ],
-        "correct_answer": "Electoral College",
-        "explanation": "The US uses the Electoral College system, where each state has a certain number of electors based on its congressional representation.",
-    },
-    {
-        "question": "In a parliamentary system like the UK or India, who usually becomes the Prime Minister?",
-        "options": [
-            "The candidate with the most national votes",
-            "The leader of the party with the most seats in parliament",
-            "The oldest member of parliament",
-            "A person appointed by the Supreme Court",
-        ],
-        "correct_answer": "The leader of the party with the most seats in parliament",
-        "explanation": "The Prime Minister is typically the leader of the party or coalition that commands a majority in the lower house of parliament.",
-    },
-    {
-        "question": "What is a 'Swing State' in US elections?",
-        "options": [
-            "A state that changes its borders",
-            "A state where voting is optional",
-            "A state where both major parties have similar levels of support",
-            "A state that votes first",
-        ],
-        "correct_answer": "A state where both major parties have similar levels of support",
-        "explanation": "Swing states (or battleground states) are states where the race is close and could be won by either Democratic or Republican candidates.",
-    },
-    {
-        "question": "What is the purpose of a primary election?",
-        "options": [
-            "To elect the president",
-            "To select a political party's candidate for an upcoming general election",
-            "To vote on local laws",
-            "To recall a politician",
-        ],
-        "correct_answer": "To select a political party's candidate for an upcoming general election",
-        "explanation": "Primary elections narrow down the field of candidates within a political party before the general election.",
-    },
-    {
-        "question": "What does EVM stand for in the context of Indian elections?",
-        "options": [
-            "Electoral Voting Machine",
-            "Electronic Voting Machine",
-            "Election Verification Mechanism",
-            "Early Voting Mandate",
-        ],
-        "correct_answer": "Electronic Voting Machine",
-        "explanation": "India uses Electronic Voting Machines (EVMs) to record votes in state and general elections.",
-    },
-    {
-        "question": "What is 'Proportional Representation'?",
-        "options": [
-            "An electoral system where parties gain seats in proportion to the number of votes cast for them",
-            "A system where the winner takes all seats",
-            "A system where only property owners can vote",
-            "A system where voting is proportional to income",
-        ],
-        "correct_answer": "An electoral system where parties gain seats in proportion to the number of votes cast for them",
-        "explanation": "In proportional representation systems, if a party wins 30% of the vote, they get roughly 30% of the seats.",
-    },
-    {
-        "question": "What is a referendum?",
-        "options": [
-            "An election for local mayors",
-            "A direct vote by the electorate on a particular proposal or issue",
-            "A survey conducted by news agencies",
-            "The process of counting votes",
-        ],
-        "correct_answer": "A direct vote by the electorate on a particular proposal or issue",
-        "explanation": "A referendum allows citizens to vote directly on a specific policy, law, or political issue, rather than for a candidate.",
-    },
-    {
-        "question": "What is voter turnout?",
-        "options": [
-            "The number of people who register to vote",
-            "The percentage of eligible voters who cast a ballot in an election",
-            "The process of verifying voter identity",
-            "The number of invalid ballots",
-        ],
-        "correct_answer": "The percentage of eligible voters who cast a ballot in an election",
-        "explanation": "Voter turnout measures the participation rate of eligible voters in a given election.",
+        "explanation": "Election commissions administer elections, passing laws is the duty of the legislature.",
     },
 ]
 
@@ -927,126 +1438,44 @@ FALLBACK_QUESTIONS = [
 def _handle_quiz_question() -> tuple[Response, int]:
     """Generate a quiz question using Gemini.
 
+    Detailed description:
+        Calls Gemini to create a quiz. If that fails, uses a random fallback question.
+        
+    Args:
+        None
+
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_quiz_question()
     """
     from services.gemini_service import GeminiElectionAssistant
 
     try:
-        gemini = GeminiElectionAssistant()
-        result = gemini.get_quiz_question()
-        return jsonify({**result, "success": True}), 200
-    except (ValueError, KeyError, ConnectionError, RuntimeError) as exc:
-        logger.error(f"{type(exc).__name__}: {str(exc)}", exc_info=True)
-        import random
-
-        question = random.choice(FALLBACK_QUESTIONS)
-        return jsonify({**question, "success": True, "fallback": True}), 200
+        gemini: GeminiElectionAssistant = GeminiElectionAssistant()
+        result: dict[str, Any] = gemini.get_quiz_question()
+        return jsonify({**result, "success": True}), HTTP_200_OK
+    except (ValueError, KeyError, ConnectionError, RuntimeError, TypeError) as exc:
+        logger.error("Quiz generation failed: %s", exc)
+        question: dict[str, Any] = random.choice(FALLBACK_QUESTIONS)
+        return jsonify({**question, "success": True, "fallback": True}), HTTP_200_OK
 
 
-FALLBACK_TIMELINES = {
+FALLBACK_TIMELINES: dict[str, dict[str, Any]] = {
     "india": {
         "country": "India",
         "timeline": [
             {
                 "phase": "Announcement",
-                "description": "Election Commission of India announces the schedule and the Model Code of Conduct comes into effect.",
+                "description": "Election Commission announces the schedule.",
                 "approximate_timeframe": "45-60 days before voting",
             },
-            {
-                "phase": "Nominations",
-                "description": "Candidates file their nomination papers, which are scrutinised.",
-                "approximate_timeframe": "1 week after announcement",
-            },
-            {
-                "phase": "Campaigning",
-                "description": "Political parties campaign across constituencies.",
-                "approximate_timeframe": "2-3 weeks",
-            },
-            {
-                "phase": "Polling",
-                "description": "Voting takes place in multiple phases across the country.",
-                "approximate_timeframe": "Spread over several weeks",
-            },
-            {
-                "phase": "Counting & Results",
-                "description": "Votes are counted and results are officially declared.",
-                "approximate_timeframe": "1 day, usually a few days after final polling phase",
-            },
         ],
-        "summary": "India's general elections are the largest democratic exercise in the world, managed independently by the Election Commission of India over several phases.",
-    },
-    "usa": {
-        "country": "USA",
-        "timeline": [
-            {
-                "phase": "Primaries & Caucuses",
-                "description": "States hold primary elections or caucuses to choose party delegates.",
-                "approximate_timeframe": "January - June of election year",
-            },
-            {
-                "phase": "National Conventions",
-                "description": "Parties officially nominate their Presidential and Vice-Presidential candidates.",
-                "approximate_timeframe": "July - August",
-            },
-            {
-                "phase": "General Election Campaign",
-                "description": "Candidates debate and campaign nationally.",
-                "approximate_timeframe": "September - October",
-            },
-            {
-                "phase": "Election Day",
-                "description": "Voters cast ballots. The Tuesday next after the first Monday in November.",
-                "approximate_timeframe": "Early November",
-            },
-            {
-                "phase": "Electoral College Vote",
-                "description": "Electors officially cast their votes for President.",
-                "approximate_timeframe": "Mid-December",
-            },
-            {
-                "phase": "Inauguration",
-                "description": "The newly elected President takes office.",
-                "approximate_timeframe": "January 20th",
-            },
-        ],
-        "summary": "The US Presidential election is a lengthy process involving state primaries, national conventions, and the Electoral College system.",
-    },
-    "uk": {
-        "country": "UK",
-        "timeline": [
-            {
-                "phase": "Dissolution of Parliament",
-                "description": "Parliament is dissolved ahead of the election.",
-                "approximate_timeframe": "25 working days before election",
-            },
-            {
-                "phase": "Nominations",
-                "description": "Candidates must submit their nomination papers.",
-                "approximate_timeframe": "19 working days before election",
-            },
-            {
-                "phase": "Campaign Period",
-                "description": "Parties release manifestos and campaign.",
-                "approximate_timeframe": "3-4 weeks",
-            },
-            {
-                "phase": "Polling Day",
-                "description": "Voters cast their ballots, typically on a Thursday.",
-                "approximate_timeframe": "Election Day",
-            },
-            {
-                "phase": "Counting & Declaration",
-                "description": "Votes are counted overnight and winning Members of Parliament (MPs) are announced.",
-                "approximate_timeframe": "Night of Election Day / Following Morning",
-            },
-            {
-                "phase": "Formation of Government",
-                "description": "The leader of the party with a majority is invited by the Monarch to form a government.",
-                "approximate_timeframe": "Immediately following results",
-            },
-        ],
-        "summary": "UK general elections determine the Members of Parliament for the House of Commons, with the majority party leader typically becoming Prime Minister.",
+        "summary": "India's general elections are managed by the Election Commission over several phases.",
     },
 }
 
@@ -1054,38 +1483,66 @@ FALLBACK_TIMELINES = {
 def _handle_timeline() -> tuple[Response, int]:
     """Retrieve an election timeline using Gemini.
 
+    Detailed description:
+        Calls Gemini to retrieve timelines, with fallback maps if it fails.
+        
+    Args:
+        None
+
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_timeline()
     """
     from services.gemini_service import GeminiElectionAssistant
 
-    data = request.get_json(silent=True)
-    country = sanitise_input(str(data.get("country", "India")))
+    data: dict[str, Any] | None = request.get_json(silent=True)
+    if data is None:
+        country: str = "India"
+    else:
+        country = sanitise_input(str(data.get("country", "India")))
 
     try:
-        gemini = GeminiElectionAssistant()
-        result = gemini.get_timeline(country)
-        return jsonify({**result, "success": True}), 200
-    except (ValueError, KeyError, ConnectionError, RuntimeError) as exc:
-        logger.error(f"{type(exc).__name__}: {str(exc)}", exc_info=True)
-        key = country.lower()
+        gemini: GeminiElectionAssistant = GeminiElectionAssistant()
+        result: dict[str, Any] = gemini.get_timeline(country)
+        return jsonify({**result, "success": True}), HTTP_200_OK
+    except (ValueError, KeyError, ConnectionError, RuntimeError, TypeError) as exc:
+        logger.error("Timeline generation failed: %s", exc)
+        key: str = country.lower()
         if key not in FALLBACK_TIMELINES:
             key = "india"
         return (
             jsonify(
                 {**FALLBACK_TIMELINES[key], "success": True, "fallback": True}
             ),
-            200,
+            HTTP_200_OK,
         )
 
 
 def _handle_map() -> tuple[Response, int]:
     """Handle map endpoint request with fallback.
 
+    Detailed description:
+        Provides mapping details based on the query. If no API key is set,
+        it uses OpenStreetMap fallback.
+        
+    Args:
+        None
+
     Returns:
         Tuple of JSON response and HTTP status code.
+        
+    Raises:
+        None
+        
+    Example:
+        >>> res, status = _handle_map()
     """
-    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    api_key: str = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
     if not api_key:
         logger.warning(
@@ -1100,28 +1557,27 @@ def _handle_map() -> tuple[Response, int]:
                     "fallback": True,
                 }
             ),
-            200,
+            HTTP_200_OK,
         )
 
-    query = sanitise_input(request.args.get("q", "polling stations near me"))
-    import urllib.parse
+    query: str = sanitise_input(request.args.get("q", "polling stations near me"))
 
-    encoded_query = urllib.parse.quote(query)
-    embed_url = f"https://www.google.com/maps/embed/v1/place?key={api_key}&q={encoded_query}"
+    encoded_query: str = urllib.parse.quote(query)
+    embed_url: str = f"https://www.google.com/maps/embed/v1/place?key={api_key}&q={encoded_query}"
     return (
         jsonify(
             {"provider": "google", "embed_url": embed_url, "success": True}
         ),
-        200,
+        HTTP_200_OK,
     )
 
 
 # ---------------------------------------------------------------------------
 # Entrypoint (used by gunicorn: `gunicorn main:app`)
 # ---------------------------------------------------------------------------
-app = create_app()
+app: Flask = create_app()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", DEFAULT_PORT))
+    port: int = int(os.environ.get("PORT", str(DEFAULT_PORT)))
     logger.info("Starting development server on port %d", port)
     app.run(host="0.0.0.0", port=port, debug=False)

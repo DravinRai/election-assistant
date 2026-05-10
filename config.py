@@ -1,21 +1,19 @@
 """
 Application configuration constants for the Election Education Assistant.
 
-Centralises all magic strings, numbers, and environment variable keys.
-Import from this module instead of using hardcoded values.
+This module provides centralized access to all magic strings, numbers, and 
+environment variable keys. Import from this module instead of using hardcoded values.
 
-Author: Ankit Rai
-Version: 2.1.0
-Usage example:
-    from config import AppConfig
-    cfg = AppConfig()
+Example:
+    >>> from config import AppConfig
+    >>> cfg = AppConfig()
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Final, List
+from typing import Final, List, Dict
 
 __all__: List[str] = [
     "ENV_GOOGLE_API_KEY",
@@ -68,6 +66,25 @@ __all__: List[str] = [
     "PAGINATION_DEFAULT_PER_PAGE",
     "PAGINATION_MAX_PER_PAGE",
     "CSP_DIRECTIVES",
+    "CONTENT_TYPE_JSON",
+    "CACHE_TTL_SECONDS",
+    "DEFAULT_LANGUAGE",
+    "DEFAULT_SPEAKING_RATE",
+    "MIN_SPEAKING_RATE",
+    "MAX_SPEAKING_RATE",
+    "HISTORY_LIMIT_DEFAULT",
+    "QUIZ_SCORES_LIMIT",
+    "DEFAULT_CONFIDENCE",
+    "MIN_CONFIDENCE",
+    "MAX_CONFIDENCE",
+    "MIN_SEARCH_RESULTS",
+    "HTTP_200_OK",
+    "HTTP_400_BAD_REQUEST",
+    "HTTP_404_NOT_FOUND",
+    "HTTP_413_PAYLOAD_TOO_LARGE",
+    "HTTP_415_UNSUPPORTED_MEDIA_TYPE",
+    "HTTP_429_TOO_MANY_REQUESTS",
+    "HTTP_500_INTERNAL_SERVER_ERROR",
     "AppConfig",
 ]
 
@@ -113,9 +130,21 @@ RATE_LIMIT_LANGUAGES: Final[str] = "120 per minute"
 RATE_LIMIT_DETECT: Final[str] = "60 per minute"
 
 # ---------------------------------------------------------------------------
+# HTTP Status Codes & Content Types
+# ---------------------------------------------------------------------------
+HTTP_200_OK: Final[int] = 200
+HTTP_400_BAD_REQUEST: Final[int] = 400
+HTTP_404_NOT_FOUND: Final[int] = 404
+HTTP_413_PAYLOAD_TOO_LARGE: Final[int] = 413
+HTTP_415_UNSUPPORTED_MEDIA_TYPE: Final[int] = 415
+HTTP_429_TOO_MANY_REQUESTS: Final[int] = 429
+HTTP_500_INTERNAL_SERVER_ERROR: Final[int] = 500
+CONTENT_TYPE_JSON: Final[str] = "application/json"
+
+# ---------------------------------------------------------------------------
 # Gemini AI
 # ---------------------------------------------------------------------------
-GEMINI_MODEL_NAME: Final[str] = "gemini-1.5-pro"
+GEMINI_MODEL_NAME: Final[str] = "gemini-2.0-flash"
 GEMINI_TEMPERATURE: Final[float] = 0.2
 GEMINI_RESPONSE_MIME: Final[str] = "application/json"
 GEMINI_HISTORY_LIMIT: Final[int] = 10
@@ -134,14 +163,29 @@ MAX_TTS_TEXT_LENGTH: Final[int] = 5000
 # ---------------------------------------------------------------------------
 SEARCH_MAX_RESULTS: Final[int] = 5
 SEARCH_MAX_RESULTS_UPPER: Final[int] = 10
+MIN_SEARCH_RESULTS: Final[int] = 1
 SEARCH_CACHE_TTL_SECONDS: Final[int] = 300  # 5 minutes
 SEARCH_BASE_URL: Final[str] = "https://www.googleapis.com/customsearch/v1"
 SEARCH_TIMEOUT_DEFAULT: Final[int] = 10
 
 # ---------------------------------------------------------------------------
-# TTS service
+# TTS service & Language defaults
 # ---------------------------------------------------------------------------
 TTS_MAX_CACHE_SIZE: Final[int] = 100
+DEFAULT_LANGUAGE: Final[str] = "en"
+DEFAULT_SPEAKING_RATE: Final[float] = 1.0
+MIN_SPEAKING_RATE: Final[float] = 0.25
+MAX_SPEAKING_RATE: Final[float] = 4.0
+
+# ---------------------------------------------------------------------------
+# Global App Defaults
+# ---------------------------------------------------------------------------
+CACHE_TTL_SECONDS: Final[int] = 300
+HISTORY_LIMIT_DEFAULT: Final[int] = 50
+QUIZ_SCORES_LIMIT: Final[int] = 20
+DEFAULT_CONFIDENCE: Final[float] = 0.5
+MIN_CONFIDENCE: Final[float] = 0.0
+MAX_CONFIDENCE: Final[float] = 1.0
 
 # ---------------------------------------------------------------------------
 # Vertex AI
@@ -164,7 +208,7 @@ PAGINATION_MAX_PER_PAGE: Final[int] = 100
 # ---------------------------------------------------------------------------
 # Security — Content-Security-Policy directives
 # ---------------------------------------------------------------------------
-CSP_DIRECTIVES: Final[dict[str, str]] = {
+CSP_DIRECTIVES: Final[Dict[str, str]] = {
     "default-src": "'self'",
     "script-src": (
         "'self' 'unsafe-inline' "
